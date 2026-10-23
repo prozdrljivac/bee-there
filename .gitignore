@@ -1,2 +1,19 @@
 docs/learning/*
 **/TODO.md
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+*.egg-info/
+
+# Local data
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
