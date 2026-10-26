@@ -1,0 +1,88 @@
+"""SQLAlchemy persistence for the Sources module."""
+
+from collections.abc import Callable
+from pathlib import Path
+from uuid import UUID, uuid7
+
+from sqlalchemy import select
+from sqlalchemy.orm import sessionmaker
+
+from infrastructure.database import create_sqlite_engine
+from modules.sources.contracts import SourceDraft, SourceUpdate
+from modules.sources.domain import Source
+from modules.sources.model import SourceRow
+
+IdFactory = Callable[[], UUID]
+
+
+def _source_from_row(row: SourceRow) -> Source:
+    return Source(
+        id=UUID(row.id),
+        name=row.name,
+        base_url=row.base_url,
+        enabled=row.enabled,
+    )
+
+
+class SQLiteSourceRepository:
+    """Store event sources in SQLite through SQLAlchemy."""
+
+    def __init__(
+        self,
+        database_path: str | Path,
+        *,
+        id_factory: IdFactory = uuid7,
+    ) -> None:
+        self._id_factory = id_factory
+        self._sessions = sessionmaker(
+            create_sqlite_engine(database_path),
+            expire_on_commit=False,
+        )
+
+    def create(self, draft: SourceDraft) -> Source:
+        """Create an event source."""
+        row = SourceRow(
+            id=str(self._id_factory()),
+            name=draft.name,
+            base_url=draft.base_url,
+            enabled=draft.enabled,
+        )
+        with self._sessions.begin() as session:
+            session.add(row)
+            session.flush()
+        return _source_from_row(row)
+
+    def update(self, source_id: UUID, changes: SourceUpdate) -> Source | None:
+        """Update one source if it exists."""
+        with self._sessions.begin() as session:
+            row = session.get(SourceRow, str(source_id))
+            if row is None:
+                return None
+            if "name" in changes.model_fields_set:
+                assert changes.name is not None
+                row.name = changes.name
+            if "base_url" in changes.model_fields_set:
+                assert changes.base_url is not None
+                row.base_url = changes.base_url
+            if "enabled" in changes.model_fields_set:
+                assert changes.enabled is not None
+                row.enabled = changes.enabled
+            session.flush()
+            return _source_from_row(row)
+
+    def list_enabled(self) -> list[Source]:
+        """Return enabled sources ordered by name."""
+        statement = (
+            select(SourceRow)
+            .where(SourceRow.enabled.is_(True))
+            .order_by(SourceRow.name, SourceRow.id)
+        )
+        with self._sessions() as session:
+            rows = session.scalars(statement).all()
+        return [_source_from_row(row) for row in rows]
+
+    def get(self, source_id: UUID) -> Source | None:
+        """Return one source by ID."""
+        with self._sessions() as session:
+            row = session.get(SourceRow, str(source_id))
+        return _source_from_row(row) if row is not None else None

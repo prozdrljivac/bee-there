@@ -27,6 +27,26 @@ def test_migration_matches_sqlalchemy_metadata(tmp_path: Path) -> None:
     command.check(config)
 
 
+def test_upgrade_head_creates_the_sources_schema(tmp_path: Path) -> None:
+    database_path = tmp_path / "database.sqlite3"
+    config = Config("alembic.ini", toml_file="pyproject.toml")
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path}")
+
+    command.upgrade(config, "head")
+
+    with closing(sqlite3.connect(database_path)) as connection:
+        columns = connection.execute("PRAGMA table_info(sources)").fetchall()
+        indexes = connection.execute("PRAGMA index_list(sources)").fetchall()
+
+    assert [column[1] for column in columns] == [
+        "id",
+        "name",
+        "base_url",
+        "enabled",
+    ]
+    assert {index[1] for index in indexes} >= {"ix_sources_enabled"}
+
+
 def test_upgrade_head_creates_the_events_schema(tmp_path: Path) -> None:
     database_path = tmp_path / "events.sqlite3"
     config = Config("alembic.ini", toml_file="pyproject.toml")

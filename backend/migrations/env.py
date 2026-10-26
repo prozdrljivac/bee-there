@@ -8,13 +8,15 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.pool import NullPool
 
 from modules.events.model import EventRow
+from modules.sources.model import SourceRow
 
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-target_metadata = EventRow.metadata
+_MAPPED_ROWS = (EventRow, SourceRow)
+target_metadata = _MAPPED_ROWS[0].metadata
 
 
 def configure_sqlite(
