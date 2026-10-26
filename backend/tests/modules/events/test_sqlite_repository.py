@@ -1,13 +1,17 @@
-import sqlite3
-from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
 
+from infrastructure.migrations import upgrade_database
 from modules.events import EventDraft
 from modules.events.sqlite import SQLiteEventRepository
+
+
+@pytest.fixture(autouse=True)
+def migrate_database(tmp_path: Path) -> None:
+    upgrade_database(tmp_path / "events.sqlite3")
 
 
 def test_upsert_stores_a_new_event(tmp_path: Path) -> None:
@@ -256,30 +260,6 @@ def test_list_upcoming_applies_the_requested_limit(tmp_path: Path) -> None:
     events = repository.list_upcoming(from_time=now, limit=1)
 
     assert [event.title for event in events] == ["Event on day 24"]
-
-
-def test_repository_rejects_an_unsupported_database_schema(
-    tmp_path: Path,
-) -> None:
-    database_path = tmp_path / "events.sqlite3"
-    with closing(sqlite3.connect(database_path)) as connection:
-        connection.execute("PRAGMA user_version = 2")
-
-    with pytest.raises(
-        RuntimeError,
-        match="unsupported Events database schema version: 2",
-    ):
-        SQLiteEventRepository(database_path)
-
-
-def test_database_uses_write_ahead_logging(tmp_path: Path) -> None:
-    database_path = tmp_path / "events.sqlite3"
-
-    SQLiteEventRepository(database_path)
-
-    with closing(sqlite3.connect(database_path)) as connection:
-        journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
-    assert journal_mode == "wal"
 
 
 def test_events_remain_available_after_the_database_is_reopened(

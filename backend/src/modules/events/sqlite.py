@@ -1,15 +1,17 @@
-"""SQLite persistence for the Events module."""
+"""SQLAlchemy persistence for the Events module."""
 
-import sqlite3
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
 from datetime import UTC, datetime
-from importlib.resources import files
 from pathlib import Path
 from uuid import UUID, uuid7
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
+
+from infrastructure.database import create_sqlite_engine
 from modules.events.contracts import EventDraft
 from modules.events.domain import Event
+from modules.events.model import EventRow
 
 Clock = Callable[[], datetime]
 IdFactory = Callable[[], UUID]
@@ -23,27 +25,25 @@ def _as_database_text(value: datetime) -> str:
     return value.astimezone(UTC).isoformat()
 
 
-def _event_from_row(row: sqlite3.Row) -> Event:
+def _event_from_row(row: EventRow) -> Event:
     return Event(
-        id=UUID(row["id"]),
-        title=row["title"],
-        summary=row["summary"],
-        starts_at=datetime.fromisoformat(row["starts_at"]),
-        ends_at=datetime.fromisoformat(row["ends_at"])
-        if row["ends_at"]
-        else None,
-        location_name=row["location_name"],
-        source_id=UUID(row["source_id"]),
-        source_url=row["source_url"],
-        external_id=row["external_id"],
-        last_seen_at=datetime.fromisoformat(row["last_seen_at"]),
-        created_at=datetime.fromisoformat(row["created_at"]),
-        updated_at=datetime.fromisoformat(row["updated_at"]),
+        id=UUID(row.id),
+        title=row.title,
+        summary=row.summary,
+        starts_at=datetime.fromisoformat(row.starts_at),
+        ends_at=datetime.fromisoformat(row.ends_at) if row.ends_at else None,
+        location_name=row.location_name,
+        source_id=UUID(row.source_id),
+        source_url=row.source_url,
+        external_id=row.external_id,
+        last_seen_at=datetime.fromisoformat(row.last_seen_at),
+        created_at=datetime.fromisoformat(row.created_at),
+        updated_at=datetime.fromisoformat(row.updated_at),
     )
 
 
 class SQLiteEventRepository:
-    """Store canonical events in a SQLite database."""
+    """Store canonical events in SQLite through SQLAlchemy."""
 
     def __init__(
         self,
@@ -52,55 +52,53 @@ class SQLiteEventRepository:
         clock: Clock = _utc_now,
         id_factory: IdFactory = uuid7,
     ) -> None:
-        self._database_path = str(database_path)
         self._clock = clock
         self._id_factory = id_factory
-        self._migrate()
+        self._sessions = sessionmaker(
+            create_sqlite_engine(database_path),
+            expire_on_commit=False,
+        )
 
     def upsert(self, draft: EventDraft) -> Event:
         """Insert an event or update the matching source listing."""
         now = self._clock().astimezone(UTC)
-        with self._connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            existing = self._find_existing(connection, draft)
-            if existing is None:
-                event = Event(
-                    id=self._id_factory(),
+        with self._sessions.begin() as session:
+            row = self._find_existing(session, draft)
+            if row is None:
+                row = EventRow(
+                    id=str(self._id_factory()),
                     title=draft.title,
                     summary=draft.summary,
-                    starts_at=draft.starts_at,
-                    ends_at=draft.ends_at,
+                    starts_at=_as_database_text(draft.starts_at),
+                    ends_at=(
+                        _as_database_text(draft.ends_at)
+                        if draft.ends_at
+                        else None
+                    ),
                     location_name=draft.location_name,
-                    source_id=draft.source_id,
+                    source_id=str(draft.source_id),
                     source_url=draft.source_url,
                     external_id=draft.external_id,
-                    last_seen_at=now,
-                    created_at=now,
-                    updated_at=now,
+                    last_seen_at=_as_database_text(now),
+                    created_at=_as_database_text(now),
+                    updated_at=_as_database_text(now),
                 )
-                self._insert(connection, event)
-                return event
-
-            event = Event(
-                id=existing.id,
-                title=draft.title,
-                summary=draft.summary,
-                starts_at=draft.starts_at,
-                ends_at=draft.ends_at,
-                location_name=draft.location_name,
-                source_id=draft.source_id,
-                source_url=draft.source_url,
-                external_id=(
-                    draft.external_id
-                    if draft.external_id is not None
-                    else existing.external_id
-                ),
-                last_seen_at=now,
-                created_at=existing.created_at,
-                updated_at=now,
-            )
-            self._update(connection, event)
-            return event
+                session.add(row)
+            else:
+                row.title = draft.title
+                row.summary = draft.summary
+                row.starts_at = _as_database_text(draft.starts_at)
+                row.ends_at = (
+                    _as_database_text(draft.ends_at) if draft.ends_at else None
+                )
+                row.location_name = draft.location_name
+                row.source_url = draft.source_url
+                if draft.external_id is not None:
+                    row.external_id = draft.external_id
+                row.last_seen_at = _as_database_text(now)
+                row.updated_at = _as_database_text(now)
+            session.flush()
+            return _event_from_row(row)
 
     def list_upcoming(self, *, from_time: datetime, limit: int) -> list[Event]:
         """Return events starting on or after a time, in chronological order."""
@@ -108,109 +106,32 @@ class SQLiteEventRepository:
             raise ValueError("limit must be positive")
         if from_time.tzinfo is None or from_time.utcoffset() is None:
             raise ValueError("from_time must include a timezone")
-        with self._connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT * FROM events
-                WHERE starts_at >= ?
-                ORDER BY starts_at, id
-                LIMIT ?
-                """,
-                (_as_database_text(from_time), limit),
-            ).fetchall()
+
+        statement = (
+            select(EventRow)
+            .where(EventRow.starts_at >= _as_database_text(from_time))
+            .order_by(EventRow.starts_at, EventRow.id)
+            .limit(limit)
+        )
+        with self._sessions() as session:
+            rows = session.scalars(statement).all()
         return [_event_from_row(row) for row in rows]
 
-    def _find_existing(
-        self, connection: sqlite3.Connection, draft: EventDraft
-    ) -> Event | None:
-        if draft.external_id is not None:
-            row = connection.execute(
-                "SELECT * FROM events WHERE source_id = ? AND external_id = ?",
-                (str(draft.source_id), draft.external_id),
-            ).fetchone()
-            if row is not None:
-                return _event_from_row(row)
-
-        query = "SELECT * FROM events WHERE source_id = ? AND source_url = ?"
-        if draft.external_id is not None:
-            query += " AND external_id IS NULL"
-        row = connection.execute(
-            query,
-            (str(draft.source_id), draft.source_url),
-        ).fetchone()
-        return _event_from_row(row) if row is not None else None
-
-    def _insert(self, connection: sqlite3.Connection, event: Event) -> None:
-        connection.execute(
-            """
-            INSERT INTO events (
-                id, title, summary, starts_at, ends_at, location_name,
-                source_id, source_url, external_id, last_seen_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            self._event_values(event),
-        )
-
-    def _update(self, connection: sqlite3.Connection, event: Event) -> None:
-        connection.execute(
-            """
-            UPDATE events SET
-                title = ?, summary = ?, starts_at = ?, ends_at = ?, location_name = ?,
-                source_url = ?, external_id = ?, last_seen_at = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                event.title,
-                event.summary,
-                _as_database_text(event.starts_at),
-                _as_database_text(event.ends_at) if event.ends_at else None,
-                event.location_name,
-                event.source_url,
-                event.external_id,
-                _as_database_text(event.last_seen_at),
-                _as_database_text(event.updated_at),
-                str(event.id),
-            ),
-        )
-
     @staticmethod
-    def _event_values(event: Event) -> tuple[str | None, ...]:
-        return (
-            str(event.id),
-            event.title,
-            event.summary,
-            _as_database_text(event.starts_at),
-            _as_database_text(event.ends_at) if event.ends_at else None,
-            event.location_name,
-            str(event.source_id),
-            event.source_url,
-            event.external_id,
-            _as_database_text(event.last_seen_at),
-            _as_database_text(event.created_at),
-            _as_database_text(event.updated_at),
-        )
+    def _find_existing(session: Session, draft: EventDraft) -> EventRow | None:
+        if draft.external_id is not None:
+            statement = select(EventRow).where(
+                EventRow.source_id == str(draft.source_id),
+                EventRow.external_id == draft.external_id,
+            )
+            row = session.scalar(statement)
+            if row is not None:
+                return row
 
-    @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(self._database_path)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        try:
-            with connection:
-                yield connection
-        finally:
-            connection.close()
-
-    def _migrate(self) -> None:
-        migration = files("modules.events.migrations").joinpath(
-            "001_initial.sql"
+        statement = select(EventRow).where(
+            EventRow.source_id == str(draft.source_id),
+            EventRow.source_url == draft.source_url,
         )
-        with self._connect() as connection:
-            connection.execute("PRAGMA journal_mode = WAL")
-            version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version == 0:
-                connection.executescript(migration.read_text(encoding="utf-8"))
-            elif version != 1:
-                raise RuntimeError(
-                    f"unsupported Events database schema version: {version}"
-                )
+        if draft.external_id is not None:
+            statement = statement.where(EventRow.external_id.is_(None))
+        return session.scalar(statement)
