@@ -2,10 +2,31 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
+import pytest
 from alembic import command
 from alembic.config import Config
 
 from infrastructure.migrations import upgrade_database
+
+
+def test_alembic_uses_the_configured_database_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_path = tmp_path / "configured.sqlite3"
+    fallback_path = tmp_path / "fallback.sqlite3"
+    monkeypatch.setenv("BEE_THERE_DATABASE_PATH", str(database_path))
+    config = Config("alembic.ini", toml_file="pyproject.toml")
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{fallback_path}")
+
+    command.upgrade(config, "head")
+
+    with closing(sqlite3.connect(database_path)) as connection:
+        table = connection.execute(
+            "SELECT name FROM sqlite_master WHERE name = 'events'"
+        ).fetchone()
+    assert table == ("events",)
+    assert not fallback_path.exists()
 
 
 def test_upgrade_database_enables_write_ahead_logging(tmp_path: Path) -> None:

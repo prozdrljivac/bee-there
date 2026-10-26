@@ -2,6 +2,18 @@
 
 The backend application and domain modules for BeeThere.
 
+## Run the API
+
+Apply migrations, then start the FastAPI application:
+
+```shell
+uv run alembic upgrade head
+uv run uvicorn main:app --app-dir src
+```
+
+The application uses `bee-there.sqlite3` by default. Set
+`BEE_THERE_DATABASE_PATH` to use another database file.
+
 ## Database migrations
 
 Apply all pending migrations before starting the application:

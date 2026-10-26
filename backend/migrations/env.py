@@ -1,16 +1,30 @@
 """Alembic migration environment."""
 
+import os
 import sqlite3
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import create_engine, event
+from sqlalchemy import URL, create_engine, event
 from sqlalchemy.pool import NullPool
 
+from infrastructure.config import (
+    DATABASE_PATH_ENV,
+    database_path_from_environment,
+)
 from modules.events.model import EventRow
 from modules.sources.model import SourceRow
 
 config = context.config
+
+if os.getenv(DATABASE_PATH_ENV) is not None and not config.attributes.get(
+    "database_path_is_explicit", False
+):
+    database_url = URL.create(
+        "sqlite",
+        database=str(database_path_from_environment().resolve()),
+    )
+    config.set_main_option("sqlalchemy.url", database_url.render_as_string())
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

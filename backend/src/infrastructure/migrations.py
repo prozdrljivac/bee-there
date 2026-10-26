@@ -19,4 +19,5 @@ def upgrade_database(database_path: str | Path) -> None:
         toml_file=str(_BACKEND_ROOT / "pyproject.toml"),
     )
     config.set_main_option("sqlalchemy.url", database_url.render_as_string())
+    config.attributes["database_path_is_explicit"] = True
     command.upgrade(config, "head")
