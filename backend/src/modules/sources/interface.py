@@ -30,6 +30,10 @@ class SourceRepository(Protocol):
         """Return one source by ID."""
         ...
 
+    def get_by_base_url(self, base_url: str) -> Source | None:
+        """Return one source by its base URL."""
+        ...
+
     def update(self, source_id: UUID, changes: SourceUpdate) -> Source | None:
         """Update one source if it exists."""
         ...

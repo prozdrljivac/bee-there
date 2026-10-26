@@ -34,6 +34,9 @@ class StubSourceRepository:
     def get(self, source_id: UUID) -> Source | None:
         return self._source if source_id == self._source.id else None
 
+    def get_by_base_url(self, base_url: str) -> Source | None:
+        return self._source if base_url == self._source.base_url else None
+
     def update(self, source_id: UUID, changes: SourceUpdate) -> Source | None:
         raise NotImplementedError
 

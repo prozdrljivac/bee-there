@@ -4,7 +4,7 @@ from pydantic import ValidationError
 
 from modules.events import EventDraft, EventRepository
 from modules.ingestion.contracts import IngestionResult
-from modules.ingestion.interface import EventExtractor
+from modules.ingestion.interface import EventExtractor, ExtractionError
 from modules.sources import Source, SourceAdapter
 
 
@@ -39,7 +39,7 @@ class IngestionService:
                     source_url=candidate.source_url,
                     external_id=candidate.external_id,
                 )
-            except ValidationError:
+            except ExtractionError, ValidationError:
                 failed_count += 1
                 continue
             self._event_repository.upsert(draft)

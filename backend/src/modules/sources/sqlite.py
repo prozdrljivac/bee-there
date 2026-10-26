@@ -86,3 +86,10 @@ class SQLiteSourceRepository:
         with self._sessions() as session:
             row = session.get(SourceRow, str(source_id))
         return _source_from_row(row) if row is not None else None
+
+    def get_by_base_url(self, base_url: str) -> Source | None:
+        """Return one source by its base URL."""
+        statement = select(SourceRow).where(SourceRow.base_url == base_url)
+        with self._sessions() as session:
+            row = session.scalar(statement)
+        return _source_from_row(row) if row is not None else None

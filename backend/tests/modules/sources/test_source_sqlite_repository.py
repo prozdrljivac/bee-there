@@ -134,6 +134,19 @@ def test_list_enabled_filters_and_orders_sources_by_name(
     ]
 
 
+def test_get_by_base_url_returns_a_stored_source(tmp_path: Path) -> None:
+    repository = SQLiteSourceRepository(tmp_path / "database.sqlite3")
+    created = repository.create(
+        SourceDraft(
+            name="Moj Novi Sad",
+            base_url="https://www.mojnovisad.com/",
+        )
+    )
+
+    assert repository.get_by_base_url("https://www.mojnovisad.com/") == created
+    assert repository.get_by_base_url("https://unknown.example/") is None
+
+
 def test_get_returns_none_for_an_unknown_source(tmp_path: Path) -> None:
     repository = SQLiteSourceRepository(tmp_path / "database.sqlite3")
 

@@ -4,7 +4,7 @@ from uuid import UUID
 import pytest
 
 from modules.events import Event, EventDraft
-from modules.ingestion import ExtractedEvent, IngestionService
+from modules.ingestion import ExtractedEvent, ExtractionError, IngestionService
 from modules.sources import CandidateListing, Source
 
 
@@ -34,6 +34,11 @@ class PartiallyInvalidExtractor:
             summary="Live jazz in the city centre.",
             starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
         )
+
+
+class UnsupportedListingExtractor:
+    def extract(self, candidate: CandidateListing) -> ExtractedEvent:
+        raise ExtractionError("listing contains multiple events")
 
 
 class RecordingEventRepository:
@@ -90,6 +95,28 @@ def test_run_continues_after_an_invalid_extraction() -> None:
     assert [draft.source_url for draft in repository.drafts] == [
         "https://example.com/events/jazz-night"
     ]
+
+
+def test_run_counts_an_unsupported_listing_as_failed() -> None:
+    source = Source(
+        id=UUID("019a57c0-8800-7000-8000-000000000010"),
+        name="Moj Novi Sad",
+        base_url="https://www.mojnovisad.com/",
+        enabled=True,
+    )
+    candidate = CandidateListing(
+        source_url="https://www.mojnovisad.com/navigator/cinema/",
+        content="unsupported",
+    )
+    service = IngestionService(
+        RecordingEventRepository(), UnsupportedListingExtractor()
+    )
+
+    result = service.run(source, StubSourceAdapter([candidate]))
+
+    assert result.discovered_count == 1
+    assert result.stored_count == 0
+    assert result.failed_count == 1
 
 
 def test_run_rejects_a_disabled_source() -> None:
