@@ -3,10 +3,13 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy.exc import IntegrityError
 
 from infrastructure.migrations import upgrade_database
-from modules.events import EventDraft
+from modules.events import (
+    EventDraft,
+    PersistenceConflictError,
+    PersistenceError,
+)
 from modules.events.sqlite import SQLiteEventRepository
 from modules.sources import SourceDraft
 from modules.sources.sqlite import SQLiteSourceRepository
@@ -32,6 +35,22 @@ def _create_source(tmp_path: Path) -> UUID:
     return source_id
 
 
+def test_upsert_raises_a_persistence_error_when_storage_fails(
+    tmp_path: Path,
+) -> None:
+    repository = SQLiteEventRepository(tmp_path / "unmigrated.sqlite3")
+    draft = EventDraft(
+        title="Jazz Night",
+        summary="Live jazz in the city centre.",
+        starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
+        source_id=uuid4(),
+        source_url="https://example.com/events/jazz-night",
+    )
+
+    with pytest.raises(PersistenceError):
+        repository.upsert(draft)
+
+
 def test_upsert_rejects_an_unknown_source(tmp_path: Path) -> None:
     repository = SQLiteEventRepository(tmp_path / "events.sqlite3")
     draft = EventDraft(
@@ -42,7 +61,7 @@ def test_upsert_rejects_an_unknown_source(tmp_path: Path) -> None:
         source_url="https://example.com/events/jazz-night",
     )
 
-    with pytest.raises(IntegrityError):
+    with pytest.raises(PersistenceConflictError):
         repository.upsert(draft)
 
 
@@ -225,6 +244,18 @@ def test_upsert_adds_an_external_id_to_an_existing_url_match(
     assert updated.id == created.id
     assert updated.external_id == "jazz-2026"
     assert events == [updated]
+
+
+def test_list_upcoming_raises_a_persistence_error_when_storage_fails(
+    tmp_path: Path,
+) -> None:
+    repository = SQLiteEventRepository(tmp_path / "unmigrated.sqlite3")
+
+    with pytest.raises(PersistenceError):
+        repository.list_upcoming(
+            from_time=datetime(2026, 10, 23, 18, 0, tzinfo=UTC),
+            limit=10,
+        )
 
 
 def test_list_upcoming_returns_future_events_in_start_order(

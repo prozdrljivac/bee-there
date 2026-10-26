@@ -6,9 +6,14 @@ from pathlib import Path
 from uuid import UUID, uuid7
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from infrastructure.database import create_sqlite_engine
+from infrastructure.persistence import (
+    PersistenceConflictError,
+    PersistenceError,
+)
 from modules.events.contracts import EventDraft
 from modules.events.domain import Event
 from modules.events.model import EventRow
@@ -61,6 +66,16 @@ class SQLiteEventRepository:
 
     def upsert(self, draft: EventDraft) -> Event:
         """Insert an event or update the matching source listing."""
+        try:
+            return self._upsert(draft)
+        except IntegrityError as error:
+            raise PersistenceConflictError(
+                "event conflicts with existing data"
+            ) from error
+        except SQLAlchemyError as error:
+            raise PersistenceError("event persistence failed") from error
+
+    def _upsert(self, draft: EventDraft) -> Event:
         now = self._clock().astimezone(UTC)
         with self._sessions.begin() as session:
             row = self._find_existing(session, draft)
@@ -113,8 +128,11 @@ class SQLiteEventRepository:
             .order_by(EventRow.starts_at, EventRow.id)
             .limit(limit)
         )
-        with self._sessions() as session:
-            rows = session.scalars(statement).all()
+        try:
+            with self._sessions() as session:
+                rows = session.scalars(statement).all()
+        except SQLAlchemyError as error:
+            raise PersistenceError("event persistence failed") from error
         return [_event_from_row(row) for row in rows]
 
     @staticmethod
