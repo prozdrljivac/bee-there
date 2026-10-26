@@ -39,6 +39,7 @@ def create_app(
                     id=event.id,
                     title=event.title,
                     summary=event.summary,
+                    category=event.category,
                     starts_at=event.starts_at,
                     ends_at=event.ends_at,
                     location_name=event.location_name,

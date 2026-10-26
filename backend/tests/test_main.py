@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from infrastructure.migrations import upgrade_database
 from main import create_application
-from modules.events import EventDraft
+from modules.events import EventCategory, EventDraft
 from modules.events.sqlite import SQLiteEventRepository
 from modules.sources import SourceDraft
 from modules.sources.sqlite import SQLiteSourceRepository
@@ -30,6 +30,7 @@ def test_application_composes_the_events_api(tmp_path: Path) -> None:
         EventDraft(
             title="Jazz Night",
             summary="Live jazz in the city centre.",
+            category=EventCategory.MUSIC,
             starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
             source_id=source_id,
             source_url="https://example.com/events/jazz-night",

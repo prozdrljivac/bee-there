@@ -3,7 +3,7 @@ from uuid import UUID
 
 import pytest
 
-from modules.events import Event, EventDraft
+from modules.events import Event, EventCategory, EventDraft
 from modules.ingestion import ExtractedEvent, ExtractionError, IngestionService
 from modules.sources import CandidateListing, Source
 
@@ -21,6 +21,7 @@ class StubEventExtractor:
         return ExtractedEvent(
             title="Jazz Night",
             summary="Live jazz in the city centre.",
+            category=EventCategory.MUSIC,
             starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
             location_name="Cultural Station",
         )
@@ -32,6 +33,7 @@ class PartiallyInvalidExtractor:
         return ExtractedEvent(
             title=title,
             summary="Live jazz in the city centre.",
+            category=EventCategory.MUSIC,
             starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
         )
 
@@ -52,6 +54,7 @@ class RecordingEventRepository:
             id=UUID("019a57c0-8800-7000-8000-000000000001"),
             title=draft.title,
             summary=draft.summary,
+            category=draft.category,
             starts_at=draft.starts_at,
             ends_at=draft.ends_at,
             location_name=draft.location_name,
@@ -156,6 +159,7 @@ def test_run_extracts_and_stores_candidates_with_source_attribution() -> None:
         EventDraft(
             title="Jazz Night",
             summary="Live jazz in the city centre.",
+            category=EventCategory.MUSIC,
             starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
             location_name="Cultural Station",
             source_id=source.id,

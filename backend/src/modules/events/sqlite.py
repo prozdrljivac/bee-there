@@ -15,7 +15,7 @@ from infrastructure.persistence import (
     PersistenceError,
 )
 from modules.events.contracts import EventDraft
-from modules.events.domain import Event
+from modules.events.domain import Event, EventCategory
 from modules.events.model import EventRow
 
 Clock = Callable[[], datetime]
@@ -35,6 +35,7 @@ def _event_from_row(row: EventRow) -> Event:
         id=UUID(row.id),
         title=row.title,
         summary=row.summary,
+        category=EventCategory(row.category),
         starts_at=datetime.fromisoformat(row.starts_at),
         ends_at=datetime.fromisoformat(row.ends_at) if row.ends_at else None,
         location_name=row.location_name,
@@ -84,6 +85,7 @@ class SQLiteEventRepository:
                     id=str(self._id_factory()),
                     title=draft.title,
                     summary=draft.summary,
+                    category=draft.category.value,
                     starts_at=_as_database_text(draft.starts_at),
                     ends_at=(
                         _as_database_text(draft.ends_at)
@@ -102,6 +104,7 @@ class SQLiteEventRepository:
             else:
                 row.title = draft.title
                 row.summary = draft.summary
+                row.category = draft.category.value
                 row.starts_at = _as_database_text(draft.starts_at)
                 row.ends_at = (
                     _as_database_text(draft.ends_at) if draft.ends_at else None

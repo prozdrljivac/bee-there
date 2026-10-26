@@ -4,7 +4,36 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from modules.events import EventDraft
+from modules.events import EventCategory, EventDraft
+
+
+def test_event_categories_are_stable() -> None:
+    assert [category.value for category in EventCategory] == [
+        "theatre",
+        "music",
+        "comedy",
+        "film",
+        "exhibition",
+        "festival",
+        "sports",
+        "community",
+        "literature",
+        "fair",
+        "other",
+    ]
+
+
+def test_event_draft_requires_a_category() -> None:
+    with pytest.raises(ValidationError, match="category"):
+        EventDraft.model_validate(
+            {
+                "title": "Jazz Night",
+                "summary": "Live jazz in the city centre.",
+                "starts_at": datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
+                "source_id": uuid4(),
+                "source_url": "https://example.com/events/jazz-night",
+            }
+        )
 
 
 def test_event_draft_normalizes_text_and_times_to_utc() -> None:
@@ -15,6 +44,7 @@ def test_event_draft_normalizes_text_and_times_to_utc() -> None:
     draft = EventDraft(
         title="  Jazz Night  ",
         summary="  Live jazz in the city centre.  ",
+        category=EventCategory.MUSIC,
         starts_at=starts_at,
         ends_at=datetime(
             2026, 11, 5, 22, 0, tzinfo=timezone(timedelta(hours=1))
@@ -26,6 +56,7 @@ def test_event_draft_normalizes_text_and_times_to_utc() -> None:
 
     assert draft.title == "Jazz Night"
     assert draft.summary == "Live jazz in the city centre."
+    assert draft.category is EventCategory.MUSIC
     assert draft.starts_at == datetime(2026, 11, 5, 19, 0, tzinfo=UTC)
     assert draft.ends_at == datetime(2026, 11, 5, 21, 0, tzinfo=UTC)
     assert draft.location_name == "Cultural Station"
@@ -39,6 +70,7 @@ def test_event_draft_rejects_blank_text(field: str) -> None:
     data = {
         "title": "Jazz Night",
         "summary": "Live jazz in the city centre.",
+        "category": EventCategory.MUSIC,
         "starts_at": datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
         "source_id": uuid4(),
         "source_url": "https://example.com/events/jazz-night",
@@ -58,6 +90,7 @@ def test_event_draft_rejects_an_end_time_not_after_the_start_time() -> None:
         EventDraft(
             title="Jazz Night",
             summary="Live jazz in the city centre.",
+            category=EventCategory.MUSIC,
             starts_at=starts_at,
             ends_at=starts_at,
             source_id=uuid4(),
@@ -70,6 +103,7 @@ def test_event_draft_rejects_an_invalid_source_url() -> None:
         EventDraft(
             title="Jazz Night",
             summary="Live jazz in the city centre.",
+            category=EventCategory.MUSIC,
             starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
             source_id=uuid4(),
             source_url="not-a-url",
@@ -83,6 +117,7 @@ def test_event_draft_rejects_an_end_time_without_a_timezone() -> None:
         EventDraft(
             title="Jazz Night",
             summary="Live jazz in the city centre.",
+            category=EventCategory.MUSIC,
             starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
             ends_at=datetime(2026, 11, 5, 21, 0),
             source_id=uuid4(),
@@ -97,6 +132,7 @@ def test_event_draft_rejects_a_start_time_without_a_timezone() -> None:
         EventDraft(
             title="Jazz Night",
             summary="Live jazz in the city centre.",
+            category=EventCategory.MUSIC,
             starts_at=datetime(2026, 11, 5, 19, 0),
             source_id=uuid4(),
             source_url="https://example.com/events/jazz-night",

@@ -6,6 +6,7 @@ import pytest
 
 from infrastructure.migrations import upgrade_database
 from modules.events import (
+    EventCategory,
     EventDraft,
     PersistenceConflictError,
     PersistenceError,
@@ -42,6 +43,7 @@ def test_upsert_raises_a_persistence_error_when_storage_fails(
     draft = EventDraft(
         title="Jazz Night",
         summary="Live jazz in the city centre.",
+        category=EventCategory.MUSIC,
         starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
         source_id=uuid4(),
         source_url="https://example.com/events/jazz-night",
@@ -56,6 +58,7 @@ def test_upsert_rejects_an_unknown_source(tmp_path: Path) -> None:
     draft = EventDraft(
         title="Jazz Night",
         summary="Live jazz in the city centre.",
+        category=EventCategory.MUSIC,
         starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
         source_id=uuid4(),
         source_url="https://example.com/events/jazz-night",
@@ -77,6 +80,7 @@ def test_upsert_stores_a_new_event(tmp_path: Path) -> None:
     draft = EventDraft(
         title="Jazz Night",
         summary="Live jazz in the city centre.",
+        category=EventCategory.MUSIC,
         starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
         location_name="Cultural Station",
         source_id=source_id,
@@ -88,6 +92,7 @@ def test_upsert_stores_a_new_event(tmp_path: Path) -> None:
 
     assert event.id == event_id
     assert event.title == "Jazz Night"
+    assert event.category is EventCategory.MUSIC
     assert event.source_id == source_id
     assert event.source_url == "https://example.com/events/jazz-night"
     assert event.created_at == now
@@ -111,6 +116,7 @@ def test_upsert_updates_an_event_with_the_same_external_id(
     original = EventDraft(
         title="Jazz Night",
         summary="Initial summary.",
+        category=EventCategory.MUSIC,
         starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
         source_id=source_id,
         source_url="https://example.com/events/jazz-night",
@@ -150,6 +156,7 @@ def test_upsert_uses_the_source_url_when_no_external_id_exists(
     draft = EventDraft(
         title="Jazz Night",
         summary="Initial summary.",
+        category=EventCategory.MUSIC,
         starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
         source_id=_create_source(tmp_path),
         source_url="https://example.com/events/jazz-night",
@@ -177,6 +184,7 @@ def test_upsert_scopes_external_ids_to_their_source(tmp_path: Path) -> None:
             EventDraft(
                 title=title,
                 summary=f"Summary for {title}.",
+                category=EventCategory.OTHER,
                 starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
                 source_id=source_id,
                 source_url=f"https://example.com/events/{title.lower()}",
@@ -201,6 +209,7 @@ def test_upsert_keeps_a_known_external_id_when_a_listing_omits_it(
     draft = EventDraft(
         title="Jazz Night",
         summary="Live jazz in the city centre.",
+        category=EventCategory.MUSIC,
         starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
         source_id=_create_source(tmp_path),
         source_url="https://example.com/events/jazz-night",
@@ -230,6 +239,7 @@ def test_upsert_adds_an_external_id_to_an_existing_url_match(
     draft = EventDraft(
         title="Jazz Night",
         summary="Live jazz in the city centre.",
+        category=EventCategory.MUSIC,
         starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
         source_id=_create_source(tmp_path),
         source_url="https://example.com/events/jazz-night",
@@ -275,6 +285,7 @@ def test_list_upcoming_returns_future_events_in_start_order(
             EventDraft(
                 title=title,
                 summary=f"Summary for {title}.",
+                category=EventCategory.OTHER,
                 starts_at=starts_at,
                 source_id=source_id,
                 source_url=f"https://example.com/events/{title.lower()}",
@@ -297,6 +308,7 @@ def test_list_upcoming_includes_an_event_at_the_boundary(
         EventDraft(
             title="Starting now",
             summary="An event at the requested boundary.",
+            category=EventCategory.OTHER,
             starts_at=boundary,
             source_id=_create_source(tmp_path),
             source_url="https://example.com/events/starting-now",
@@ -317,6 +329,7 @@ def test_list_upcoming_applies_the_requested_limit(tmp_path: Path) -> None:
             EventDraft(
                 title=f"Event on day {day}",
                 summary="An upcoming event.",
+                category=EventCategory.OTHER,
                 starts_at=datetime(2026, 10, day, 19, 0, tzinfo=UTC),
                 source_id=source_id,
                 source_url=f"https://example.com/events/{day}",
@@ -338,6 +351,7 @@ def test_events_remain_available_after_the_database_is_reopened(
         EventDraft(
             title="Jazz Night",
             summary="Live jazz in the city centre.",
+            category=EventCategory.MUSIC,
             starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
             source_id=_create_source(tmp_path),
             source_url="https://example.com/events/jazz-night",

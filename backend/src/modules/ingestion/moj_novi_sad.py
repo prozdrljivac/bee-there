@@ -4,6 +4,7 @@ import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from modules.events import EventCategory
 from modules.ingestion.contracts import ExtractedEvent
 from modules.ingestion.interface import ExtractionError
 from modules.sources import CandidateListing
@@ -37,6 +38,7 @@ class MojNoviSadExtractor:
             return ExtractedEvent(
                 title=fields["Title"],
                 summary=summary,
+                category=EventCategory.OTHER,
                 starts_at=starts_at,
                 location_name=location,
             )

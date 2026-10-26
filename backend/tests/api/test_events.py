@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.app import create_app
-from modules.events import Event, EventDraft
+from modules.events import Event, EventCategory, EventDraft
 from modules.sources import Source, SourceDraft, SourceUpdate
 
 
@@ -49,6 +49,7 @@ def _event(source_id: UUID) -> Event:
         id=UUID("019a57c0-8800-7000-8000-000000000001"),
         title="Jazz Night",
         summary="Live jazz in the city centre.",
+        category=EventCategory.MUSIC,
         starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
         ends_at=None,
         location_name="Cultural Station",
@@ -152,6 +153,7 @@ def test_list_events_returns_upcoming_events_with_source_names() -> None:
             "id": str(event.id),
             "title": "Jazz Night",
             "summary": "Live jazz in the city centre.",
+            "category": "music",
             "starts_at": "2026-11-05T19:00:00Z",
             "ends_at": None,
             "location_name": "Cultural Station",

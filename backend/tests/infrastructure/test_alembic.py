@@ -112,6 +112,7 @@ def test_upgrade_head_creates_the_events_schema(tmp_path: Path) -> None:
         "last_seen_at",
         "created_at",
         "updated_at",
+        "category",
     ]
     assert revision is not None
     assert journal_mode == "wal"

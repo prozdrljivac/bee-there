@@ -13,6 +13,8 @@ from pydantic import (
     model_validator,
 )
 
+from modules.events.domain import EventCategory
+
 
 def _to_utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
@@ -42,6 +44,7 @@ class EventDraft(BaseModel):
 
     title: RequiredText
     summary: RequiredText
+    category: EventCategory
     starts_at: UtcDateTime
     ends_at: UtcDateTime | None = None
     location_name: OptionalText = None

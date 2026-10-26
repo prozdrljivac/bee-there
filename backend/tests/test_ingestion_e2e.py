@@ -44,6 +44,7 @@ def test_ingests_moj_novi_sad_and_serves_the_event(
             "id": response.json()[0]["id"],
             "title": "Jazz Night",
             "summary": "Live jazz in the city centre.",
+            "category": "other",
             "starts_at": "2026-10-26T19:00:00Z",
             "ends_at": None,
             "location_name": "Cultural Station",

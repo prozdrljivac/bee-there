@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from modules.events import EventCategory
 from modules.ingestion import ExtractionError
 from modules.ingestion.moj_novi_sad import MojNoviSadExtractor
 from modules.sources import CandidateListing
@@ -26,6 +27,7 @@ def test_extracts_a_standard_moj_novi_sad_event_deterministically() -> None:
     assert event.summary == (
         "Live jazz in the city centre. Doors open at 19:30."
     )
+    assert event.category is EventCategory.OTHER
     assert event.starts_at == datetime(2026, 10, 26, 19, 0, tzinfo=UTC)
     assert event.ends_at is None
     assert event.location_name == "Cultural Station"

@@ -35,6 +35,7 @@ class EventRow(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)
     title: Mapped[str] = mapped_column(String)
     summary: Mapped[str] = mapped_column(String)
+    category: Mapped[str] = mapped_column(String)
     starts_at: Mapped[str] = mapped_column(String)
     ends_at: Mapped[str | None] = mapped_column(String, nullable=True)
     location_name: Mapped[str | None] = mapped_column(String, nullable=True)

@@ -12,6 +12,8 @@ from pydantic import (
     model_validator,
 )
 
+from modules.events import EventCategory
+
 
 def _to_utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
@@ -36,6 +38,7 @@ class ExtractedEvent(BaseModel):
 
     title: RequiredText
     summary: RequiredText
+    category: EventCategory
     starts_at: UtcDateTime
     ends_at: UtcDateTime | None = None
     location_name: OptionalText = None

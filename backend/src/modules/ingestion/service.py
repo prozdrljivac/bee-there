@@ -32,6 +32,7 @@ class IngestionService:
                 draft = EventDraft(
                     title=extracted.title,
                     summary=extracted.summary,
+                    category=extracted.category,
                     starts_at=extracted.starts_at,
                     ends_at=extracted.ends_at,
                     location_name=extracted.location_name,

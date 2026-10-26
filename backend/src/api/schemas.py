@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel
 
+from modules.events import EventCategory
+
 
 class EventResponse(BaseModel):
     """Public representation of an upcoming event."""
@@ -11,6 +13,7 @@ class EventResponse(BaseModel):
     id: UUID
     title: str
     summary: str
+    category: EventCategory
     starts_at: AwareDatetime
     ends_at: AwareDatetime | None
     location_name: str | None
