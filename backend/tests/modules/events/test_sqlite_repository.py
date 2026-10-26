@@ -1,0 +1,153 @@
+from datetime import UTC, datetime
+from pathlib import Path
+from uuid import UUID, uuid4
+
+import pytest
+
+from modules.events import EventDraft
+from modules.events.sqlite import SQLiteEventRepository
+
+
+def test_upsert_stores_a_new_event(tmp_path: Path) -> None:
+    event_id = UUID("019a57c0-8800-7000-8000-000000000001")
+    now = datetime(2026, 10, 23, 18, 0, tzinfo=UTC)
+    source_id = uuid4()
+    repository = SQLiteEventRepository(
+        tmp_path / "events.sqlite3",
+        clock=lambda: now,
+        id_factory=lambda: event_id,
+    )
+    draft = EventDraft(
+        title="Jazz Night",
+        summary="Live jazz in the city centre.",
+        starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
+        location_name="Cultural Station",
+        source_id=source_id,
+        source_url="https://example.com/events/jazz-night",
+        external_id="jazz-2026",
+    )
+
+    event = repository.upsert(draft)
+
+    assert event.id == event_id
+    assert event.title == "Jazz Night"
+    assert event.source_id == source_id
+    assert event.source_url == "https://example.com/events/jazz-night"
+    assert event.created_at == now
+    assert event.updated_at == now
+    assert event.last_seen_at == now
+
+
+def test_upsert_updates_an_event_with_the_same_external_id(
+    tmp_path: Path,
+) -> None:
+    event_id = UUID("019a57c0-8800-7000-8000-000000000001")
+    first_seen = datetime(2026, 10, 23, 18, 0, tzinfo=UTC)
+    seen_again = datetime(2026, 10, 24, 9, 0, tzinfo=UTC)
+    times = iter((first_seen, seen_again))
+    repository = SQLiteEventRepository(
+        tmp_path / "events.sqlite3",
+        clock=lambda: next(times),
+        id_factory=lambda: event_id,
+    )
+    source_id = uuid4()
+    original = EventDraft(
+        title="Jazz Night",
+        summary="Initial summary.",
+        starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
+        source_id=source_id,
+        source_url="https://example.com/events/jazz-night",
+        external_id="jazz-2026",
+    )
+    revised = original.model_copy(
+        update={"title": "Jazz Night: Revised", "summary": "Updated summary."}
+    )
+    created = repository.upsert(original)
+
+    updated = repository.upsert(revised)
+
+    assert updated.id == created.id
+    assert updated.title == "Jazz Night: Revised"
+    assert updated.summary == "Updated summary."
+    assert updated.created_at == first_seen
+    assert updated.updated_at == seen_again
+    assert updated.last_seen_at == seen_again
+
+
+def test_upsert_uses_the_source_url_when_no_external_id_exists(
+    tmp_path: Path,
+) -> None:
+    event_id = UUID("019a57c0-8800-7000-8000-000000000001")
+    times = iter(
+        (
+            datetime(2026, 10, 23, 18, 0, tzinfo=UTC),
+            datetime(2026, 10, 24, 9, 0, tzinfo=UTC),
+        )
+    )
+    database_path = tmp_path / "events.sqlite3"
+    repository = SQLiteEventRepository(
+        database_path,
+        clock=lambda: next(times),
+        id_factory=lambda: event_id,
+    )
+    draft = EventDraft(
+        title="Jazz Night",
+        summary="Initial summary.",
+        starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
+        source_id=uuid4(),
+        source_url="https://example.com/events/jazz-night",
+    )
+    created = repository.upsert(draft)
+
+    updated = repository.upsert(
+        draft.model_copy(update={"summary": "Updated summary."})
+    )
+
+    assert updated.id == created.id
+    assert updated.summary == "Updated summary."
+
+
+def test_list_upcoming_returns_future_events_in_start_order(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 10, 23, 18, 0, tzinfo=UTC)
+    repository = SQLiteEventRepository(
+        tmp_path / "events.sqlite3", clock=lambda: now
+    )
+    source_id = uuid4()
+    for title, starts_at in (
+        ("Past", datetime(2026, 10, 22, 19, 0, tzinfo=UTC)),
+        ("Later", datetime(2026, 10, 25, 19, 0, tzinfo=UTC)),
+        ("Sooner", datetime(2026, 10, 24, 19, 0, tzinfo=UTC)),
+    ):
+        repository.upsert(
+            EventDraft(
+                title=title,
+                summary=f"Summary for {title}.",
+                starts_at=starts_at,
+                source_id=source_id,
+                source_url=f"https://example.com/events/{title.lower()}",
+            )
+        )
+
+    events = repository.list_upcoming(from_time=now, limit=10)
+
+    assert [event.title for event in events] == ["Sooner", "Later"]
+
+
+def test_list_upcoming_rejects_a_nonpositive_limit(tmp_path: Path) -> None:
+    repository = SQLiteEventRepository(tmp_path / "events.sqlite3")
+
+    with pytest.raises(ValueError, match="limit must be positive"):
+        repository.list_upcoming(from_time=datetime.now(UTC), limit=0)
+
+
+def test_list_upcoming_rejects_a_time_without_a_timezone(
+    tmp_path: Path,
+) -> None:
+    repository = SQLiteEventRepository(tmp_path / "events.sqlite3")
+
+    with pytest.raises(ValueError, match="from_time must include a timezone"):
+        repository.list_upcoming(
+            from_time=datetime(2026, 10, 23, 18, 0), limit=10
+        )

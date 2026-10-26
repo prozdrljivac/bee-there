@@ -1,0 +1,23 @@
+"""Domain types owned by the Events module."""
+
+from dataclasses import dataclass
+from datetime import datetime
+from uuid import UUID
+
+
+@dataclass(frozen=True, slots=True)
+class Event:
+    """A canonical event stored by the Events module."""
+
+    id: UUID
+    title: str
+    summary: str
+    starts_at: datetime
+    ends_at: datetime | None
+    location_name: str | None
+    source_id: UUID
+    source_url: str
+    external_id: str | None
+    last_seen_at: datetime
+    created_at: datetime
+    updated_at: datetime
