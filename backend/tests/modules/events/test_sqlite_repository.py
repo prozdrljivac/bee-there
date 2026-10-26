@@ -1,3 +1,5 @@
+import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -107,6 +109,85 @@ def test_upsert_uses_the_source_url_when_no_external_id_exists(
     assert updated.summary == "Updated summary."
 
 
+def test_upsert_scopes_external_ids_to_their_source(tmp_path: Path) -> None:
+    now = datetime(2026, 10, 23, 18, 0, tzinfo=UTC)
+    repository = SQLiteEventRepository(
+        tmp_path / "events.sqlite3", clock=lambda: now
+    )
+    for title, source_id in (("First", uuid4()), ("Second", uuid4())):
+        repository.upsert(
+            EventDraft(
+                title=title,
+                summary=f"Summary for {title}.",
+                starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
+                source_id=source_id,
+                source_url=f"https://example.com/events/{title.lower()}",
+                external_id="shared-external-id",
+            )
+        )
+
+    events = repository.list_upcoming(from_time=now, limit=10)
+
+    assert {event.title for event in events} == {"First", "Second"}
+
+
+def test_upsert_keeps_a_known_external_id_when_a_listing_omits_it(
+    tmp_path: Path,
+) -> None:
+    first_seen = datetime(2026, 10, 23, 18, 0, tzinfo=UTC)
+    seen_again = datetime(2026, 10, 24, 9, 0, tzinfo=UTC)
+    times = iter((first_seen, seen_again))
+    repository = SQLiteEventRepository(
+        tmp_path / "events.sqlite3", clock=lambda: next(times)
+    )
+    draft = EventDraft(
+        title="Jazz Night",
+        summary="Live jazz in the city centre.",
+        starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
+        source_id=uuid4(),
+        source_url="https://example.com/events/jazz-night",
+        external_id="jazz-2026",
+    )
+    created = repository.upsert(draft)
+
+    updated = repository.upsert(draft.model_copy(update={"external_id": None}))
+
+    events = repository.list_upcoming(from_time=first_seen, limit=10)
+    assert updated.id == created.id
+    assert updated.external_id == "jazz-2026"
+    assert updated.updated_at == seen_again
+    assert events == [updated]
+
+
+def test_upsert_adds_an_external_id_to_an_existing_url_match(
+    tmp_path: Path,
+) -> None:
+    event_id = UUID("019a57c0-8800-7000-8000-000000000001")
+    now = datetime(2026, 10, 23, 18, 0, tzinfo=UTC)
+    repository = SQLiteEventRepository(
+        tmp_path / "events.sqlite3",
+        clock=lambda: now,
+        id_factory=lambda: event_id,
+    )
+    draft = EventDraft(
+        title="Jazz Night",
+        summary="Live jazz in the city centre.",
+        starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
+        source_id=uuid4(),
+        source_url="https://example.com/events/jazz-night",
+    )
+    created = repository.upsert(draft)
+
+    updated = repository.upsert(
+        draft.model_copy(update={"external_id": "jazz-2026"})
+    )
+
+    events = repository.list_upcoming(from_time=now, limit=10)
+    assert updated.id == created.id
+    assert updated.external_id == "jazz-2026"
+    assert events == [updated]
+
+
 def test_list_upcoming_returns_future_events_in_start_order(
     tmp_path: Path,
 ) -> None:
@@ -133,6 +214,95 @@ def test_list_upcoming_returns_future_events_in_start_order(
     events = repository.list_upcoming(from_time=now, limit=10)
 
     assert [event.title for event in events] == ["Sooner", "Later"]
+
+
+def test_list_upcoming_includes_an_event_at_the_boundary(
+    tmp_path: Path,
+) -> None:
+    boundary = datetime(2026, 10, 23, 18, 0, tzinfo=UTC)
+    repository = SQLiteEventRepository(
+        tmp_path / "events.sqlite3", clock=lambda: boundary
+    )
+    created = repository.upsert(
+        EventDraft(
+            title="Starting now",
+            summary="An event at the requested boundary.",
+            starts_at=boundary,
+            source_id=uuid4(),
+            source_url="https://example.com/events/starting-now",
+        )
+    )
+
+    assert repository.list_upcoming(from_time=boundary, limit=10) == [created]
+
+
+def test_list_upcoming_applies_the_requested_limit(tmp_path: Path) -> None:
+    now = datetime(2026, 10, 23, 18, 0, tzinfo=UTC)
+    repository = SQLiteEventRepository(
+        tmp_path / "events.sqlite3", clock=lambda: now
+    )
+    source_id = uuid4()
+    for day in (24, 25):
+        repository.upsert(
+            EventDraft(
+                title=f"Event on day {day}",
+                summary="An upcoming event.",
+                starts_at=datetime(2026, 10, day, 19, 0, tzinfo=UTC),
+                source_id=source_id,
+                source_url=f"https://example.com/events/{day}",
+            )
+        )
+
+    events = repository.list_upcoming(from_time=now, limit=1)
+
+    assert [event.title for event in events] == ["Event on day 24"]
+
+
+def test_repository_rejects_an_unsupported_database_schema(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "events.sqlite3"
+    with closing(sqlite3.connect(database_path)) as connection:
+        connection.execute("PRAGMA user_version = 2")
+
+    with pytest.raises(
+        RuntimeError,
+        match="unsupported Events database schema version: 2",
+    ):
+        SQLiteEventRepository(database_path)
+
+
+def test_database_uses_write_ahead_logging(tmp_path: Path) -> None:
+    database_path = tmp_path / "events.sqlite3"
+
+    SQLiteEventRepository(database_path)
+
+    with closing(sqlite3.connect(database_path)) as connection:
+        journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
+    assert journal_mode == "wal"
+
+
+def test_events_remain_available_after_the_database_is_reopened(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 10, 23, 18, 0, tzinfo=UTC)
+    database_path = tmp_path / "events.sqlite3"
+    repository = SQLiteEventRepository(database_path, clock=lambda: now)
+    created = repository.upsert(
+        EventDraft(
+            title="Jazz Night",
+            summary="Live jazz in the city centre.",
+            starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
+            source_id=uuid4(),
+            source_url="https://example.com/events/jazz-night",
+        )
+    )
+
+    reopened_repository = SQLiteEventRepository(database_path)
+
+    assert reopened_repository.list_upcoming(from_time=now, limit=10) == [
+        created
+    ]
 
 
 def test_list_upcoming_rejects_a_nonpositive_limit(tmp_path: Path) -> None:

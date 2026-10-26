@@ -90,7 +90,11 @@ class SQLiteEventRepository:
                 location_name=draft.location_name,
                 source_id=draft.source_id,
                 source_url=draft.source_url,
-                external_id=draft.external_id,
+                external_id=(
+                    draft.external_id
+                    if draft.external_id is not None
+                    else existing.external_id
+                ),
                 last_seen_at=now,
                 created_at=existing.created_at,
                 updated_at=now,
@@ -124,11 +128,16 @@ class SQLiteEventRepository:
                 "SELECT * FROM events WHERE source_id = ? AND external_id = ?",
                 (str(draft.source_id), draft.external_id),
             ).fetchone()
-        else:
-            row = connection.execute(
-                "SELECT * FROM events WHERE source_id = ? AND source_url = ? AND external_id IS NULL",
-                (str(draft.source_id), draft.source_url),
-            ).fetchone()
+            if row is not None:
+                return _event_from_row(row)
+
+        query = "SELECT * FROM events WHERE source_id = ? AND source_url = ?"
+        if draft.external_id is not None:
+            query += " AND external_id IS NULL"
+        row = connection.execute(
+            query,
+            (str(draft.source_id), draft.source_url),
+        ).fetchone()
         return _event_from_row(row) if row is not None else None
 
     def _insert(self, connection: sqlite3.Connection, event: Event) -> None:
