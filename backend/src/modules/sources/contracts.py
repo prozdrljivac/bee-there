@@ -19,7 +19,21 @@ def _validate_base_url(value: str) -> str:
 RequiredText = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1)
 ]
+OptionalText = (
+    Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    | None
+)
 BaseUrl = Annotated[str, AfterValidator(_validate_base_url)]
+
+
+class CandidateListing(BaseModel):
+    """One event listing retrieved from a configured source."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source_url: BaseUrl
+    content: RequiredText
+    external_id: OptionalText = None
 
 
 class SourceUpdate(BaseModel):

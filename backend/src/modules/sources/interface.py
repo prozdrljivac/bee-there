@@ -3,8 +3,20 @@
 from typing import Protocol
 from uuid import UUID
 
-from modules.sources.contracts import SourceDraft, SourceUpdate
+from modules.sources.contracts import (
+    CandidateListing,
+    SourceDraft,
+    SourceUpdate,
+)
 from modules.sources.domain import Source
+
+
+class SourceAdapter(Protocol):
+    """Retrieve candidate event listings from one source."""
+
+    def fetch_candidates(self, source: Source) -> list[CandidateListing]:
+        """Fetch candidate listings from a source."""
+        ...
 
 
 class SourceRepository(Protocol):
