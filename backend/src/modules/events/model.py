@@ -1,6 +1,6 @@
 """SQLAlchemy model owned by the Events module."""
 
-from sqlalchemy import CheckConstraint, Index, String, text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.database import Base
@@ -38,7 +38,10 @@ class EventRow(Base):
     starts_at: Mapped[str] = mapped_column(String)
     ends_at: Mapped[str | None] = mapped_column(String, nullable=True)
     location_name: Mapped[str | None] = mapped_column(String, nullable=True)
-    source_id: Mapped[str] = mapped_column(String)
+    source_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("sources.id", name="fk_events_source_id_sources"),
+    )
     source_url: Mapped[str] = mapped_column(String)
     external_id: Mapped[str | None] = mapped_column(String, nullable=True)
     last_seen_at: Mapped[str] = mapped_column(String)

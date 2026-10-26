@@ -3,10 +3,13 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from infrastructure.migrations import upgrade_database
 from modules.events import EventDraft
 from modules.events.sqlite import SQLiteEventRepository
+from modules.sources import SourceDraft
+from modules.sources.sqlite import SQLiteSourceRepository
 
 
 @pytest.fixture(autouse=True)
@@ -14,10 +17,39 @@ def migrate_database(tmp_path: Path) -> None:
     upgrade_database(tmp_path / "events.sqlite3")
 
 
+def _create_source(tmp_path: Path) -> UUID:
+    source_id = uuid4()
+    repository = SQLiteSourceRepository(
+        tmp_path / "events.sqlite3",
+        id_factory=lambda: source_id,
+    )
+    repository.create(
+        SourceDraft(
+            name=f"Source {source_id}",
+            base_url=f"https://example.com/sources/{source_id}",
+        )
+    )
+    return source_id
+
+
+def test_upsert_rejects_an_unknown_source(tmp_path: Path) -> None:
+    repository = SQLiteEventRepository(tmp_path / "events.sqlite3")
+    draft = EventDraft(
+        title="Jazz Night",
+        summary="Live jazz in the city centre.",
+        starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
+        source_id=uuid4(),
+        source_url="https://example.com/events/jazz-night",
+    )
+
+    with pytest.raises(IntegrityError):
+        repository.upsert(draft)
+
+
 def test_upsert_stores_a_new_event(tmp_path: Path) -> None:
     event_id = UUID("019a57c0-8800-7000-8000-000000000001")
     now = datetime(2026, 10, 23, 18, 0, tzinfo=UTC)
-    source_id = uuid4()
+    source_id = _create_source(tmp_path)
     repository = SQLiteEventRepository(
         tmp_path / "events.sqlite3",
         clock=lambda: now,
@@ -56,7 +88,7 @@ def test_upsert_updates_an_event_with_the_same_external_id(
         clock=lambda: next(times),
         id_factory=lambda: event_id,
     )
-    source_id = uuid4()
+    source_id = _create_source(tmp_path)
     original = EventDraft(
         title="Jazz Night",
         summary="Initial summary.",
@@ -100,7 +132,7 @@ def test_upsert_uses_the_source_url_when_no_external_id_exists(
         title="Jazz Night",
         summary="Initial summary.",
         starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
-        source_id=uuid4(),
+        source_id=_create_source(tmp_path),
         source_url="https://example.com/events/jazz-night",
     )
     created = repository.upsert(draft)
@@ -118,7 +150,10 @@ def test_upsert_scopes_external_ids_to_their_source(tmp_path: Path) -> None:
     repository = SQLiteEventRepository(
         tmp_path / "events.sqlite3", clock=lambda: now
     )
-    for title, source_id in (("First", uuid4()), ("Second", uuid4())):
+    for title, source_id in (
+        ("First", _create_source(tmp_path)),
+        ("Second", _create_source(tmp_path)),
+    ):
         repository.upsert(
             EventDraft(
                 title=title,
@@ -148,7 +183,7 @@ def test_upsert_keeps_a_known_external_id_when_a_listing_omits_it(
         title="Jazz Night",
         summary="Live jazz in the city centre.",
         starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
-        source_id=uuid4(),
+        source_id=_create_source(tmp_path),
         source_url="https://example.com/events/jazz-night",
         external_id="jazz-2026",
     )
@@ -177,7 +212,7 @@ def test_upsert_adds_an_external_id_to_an_existing_url_match(
         title="Jazz Night",
         summary="Live jazz in the city centre.",
         starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
-        source_id=uuid4(),
+        source_id=_create_source(tmp_path),
         source_url="https://example.com/events/jazz-night",
     )
     created = repository.upsert(draft)
@@ -199,7 +234,7 @@ def test_list_upcoming_returns_future_events_in_start_order(
     repository = SQLiteEventRepository(
         tmp_path / "events.sqlite3", clock=lambda: now
     )
-    source_id = uuid4()
+    source_id = _create_source(tmp_path)
     for title, starts_at in (
         ("Past", datetime(2026, 10, 22, 19, 0, tzinfo=UTC)),
         ("Later", datetime(2026, 10, 25, 19, 0, tzinfo=UTC)),
@@ -232,7 +267,7 @@ def test_list_upcoming_includes_an_event_at_the_boundary(
             title="Starting now",
             summary="An event at the requested boundary.",
             starts_at=boundary,
-            source_id=uuid4(),
+            source_id=_create_source(tmp_path),
             source_url="https://example.com/events/starting-now",
         )
     )
@@ -245,7 +280,7 @@ def test_list_upcoming_applies_the_requested_limit(tmp_path: Path) -> None:
     repository = SQLiteEventRepository(
         tmp_path / "events.sqlite3", clock=lambda: now
     )
-    source_id = uuid4()
+    source_id = _create_source(tmp_path)
     for day in (24, 25):
         repository.upsert(
             EventDraft(
@@ -273,7 +308,7 @@ def test_events_remain_available_after_the_database_is_reopened(
             title="Jazz Night",
             summary="Live jazz in the city centre.",
             starts_at=datetime(2026, 11, 5, 19, 0, tzinfo=UTC),
-            source_id=uuid4(),
+            source_id=_create_source(tmp_path),
             source_url="https://example.com/events/jazz-night",
         )
     )

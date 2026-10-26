@@ -47,6 +47,23 @@ def test_upgrade_head_creates_the_sources_schema(tmp_path: Path) -> None:
     assert {index[1] for index in indexes} >= {"ix_sources_enabled"}
 
 
+def test_events_reference_their_configured_source(tmp_path: Path) -> None:
+    database_path = tmp_path / "database.sqlite3"
+    config = Config("alembic.ini", toml_file="pyproject.toml")
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path}")
+
+    command.upgrade(config, "head")
+
+    with closing(sqlite3.connect(database_path)) as connection:
+        foreign_keys = connection.execute(
+            "PRAGMA foreign_key_list(events)"
+        ).fetchall()
+
+    assert [(key[2], key[3], key[4]) for key in foreign_keys] == [
+        ("sources", "source_id", "id")
+    ]
+
+
 def test_upgrade_head_creates_the_events_schema(tmp_path: Path) -> None:
     database_path = tmp_path / "events.sqlite3"
     config = Config("alembic.ini", toml_file="pyproject.toml")
