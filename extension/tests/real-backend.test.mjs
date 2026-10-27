@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { unzipSync } from "fflate";
 import puppeteer from "puppeteer";
 
 const extensionDirectory = path.resolve(
@@ -15,11 +22,13 @@ const extensionDirectory = path.resolve(
 const projectDirectory = path.resolve(extensionDirectory, "..");
 const backendDirectory = path.join(projectDirectory, "backend");
 const distributionDirectory = path.join(extensionDirectory, "dist");
+const releaseDirectory = path.join(extensionDirectory, "release");
 let apiBaseUrl;
 let backend;
 let backendOutput = "";
 let browser;
 let browserSession;
+let installedExtensionDirectory;
 let temporaryDirectory;
 
 async function findAvailablePort() {
@@ -157,15 +166,32 @@ for title, starts_at, path in (
   });
   await waitForBackend();
 
-  const build = spawnSync("npm", ["run", "build"], {
+  await rm(distributionDirectory, { force: true, recursive: true });
+  await rm(releaseDirectory, { force: true, recursive: true });
+  const release = spawnSync("npm", ["run", "release"], {
     cwd: extensionDirectory,
     encoding: "utf8",
     env: { ...process.env, BEE_THERE_API_BASE_URL: apiBaseUrl },
   });
-  assert.equal(build.status, 0, build.stderr || build.stdout);
+  assert.equal(release.status, 0, release.stderr || release.stdout);
+
+  const archive = unzipSync(
+    await readFile(
+      path.join(releaseDirectory, "bee-there-chrome-0.1.0.zip"),
+    ),
+  );
+  installedExtensionDirectory = path.join(
+    temporaryDirectory,
+    "installed-extension",
+  );
+  for (const [archivePath, contents] of Object.entries(archive)) {
+    const destination = path.join(installedExtensionDirectory, archivePath);
+    await mkdir(path.dirname(destination), { recursive: true });
+    await writeFile(destination, contents);
+  }
 
   browser = await puppeteer.launch({
-    enableExtensions: [distributionDirectory],
+    enableExtensions: [installedExtensionDirectory],
     headless: true,
   });
   browserSession = await browser.target().createCDPSession();
@@ -202,9 +228,11 @@ after(async () => {
   if (temporaryDirectory) {
     await rm(temporaryDirectory, { force: true, recursive: true });
   }
+  await rm(distributionDirectory, { force: true, recursive: true });
+  await rm(releaseDirectory, { force: true, recursive: true });
 });
 
-test("the real backend supplies ordered upcoming events and source links", async () => {
+test("the clean release bundle completes the real backend journey", async () => {
   const { popup, triggerPage } = await openPopup();
   await popup.waitForSelector(".event-card:nth-child(2)");
   const titles = await popup.$$eval(".event-title", (elements) =>
