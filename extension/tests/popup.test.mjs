@@ -125,21 +125,20 @@ after(async () => {
   });
 });
 
-test("the toolbar action opens a popup with the BeeThere heading", async () => {
+test("the toolbar action opens the BeeThere visual shell", async () => {
   const { popup, triggerPage } = await openPopup();
-  const heading = await popup.$eval("h1", (element) => element.textContent);
-  assert.equal(heading, "BeeThere");
+  const shell = await popup.$eval(".popup", (element) => ({
+    brand: element.querySelector(".brand").textContent.trim(),
+    width: getComputedStyle(element).width,
+  }));
+  assert.deepEqual(shell, { brand: "BeeThere", width: "420px" });
   await popup.close();
   await triggerPage.close();
 });
 
-test("the popup starts with an empty event list", async () => {
+test("the popup starts with no event cards", async () => {
   const { popup, triggerPage } = await openPopup();
-  const eventCount = await popup.$eval(
-    "#event-list",
-    (eventList) => eventList.children.length,
-  );
-  assert.equal(eventCount, 0);
+  assert.equal(await popup.$$(".event-card").then((items) => items.length), 0);
   await popup.close();
   await triggerPage.close();
 });
@@ -156,10 +155,20 @@ test("the popup shows loading feedback while events are pending", async () => {
     await popup.$eval("#status", (status) => status.textContent),
     "Loading events…",
   );
+  assert.equal(await popup.$$(".skeleton").then((items) => items.length), 2);
+  assert.equal(
+    await popup.$eval("#event-list", (list) => list.getAttribute("aria-busy")),
+    "true",
+  );
 
   respondWithJson(pendingResponse);
   await popup.waitForFunction(
     () => document.querySelector("#status").textContent !== "Loading events…",
+  );
+  assert.equal(await popup.$(".skeleton"), null);
+  assert.equal(
+    await popup.$eval("#event-list", (list) => list.getAttribute("aria-busy")),
+    "false",
   );
   await popup.close();
   await triggerPage.close();
@@ -173,6 +182,17 @@ test("the popup shows a message when no events are available", async () => {
   assert.equal(
     await popup.$eval("#status", (status) => status.textContent),
     "No upcoming events.",
+  );
+  assert.deepEqual(
+    await popup.$eval(".state", (state) => ({
+      title: state.querySelector("h3").textContent,
+      message: state.querySelector("p").textContent,
+    })),
+    {
+      title: "A quiet moment.",
+      message:
+        "No upcoming events right now. Come back soon for your next good plan.",
+    },
   );
   assert.equal(await popup.$("#retry"), null);
   await popup.close();
@@ -207,6 +227,18 @@ test("the popup retries after a network error", async () => {
   assert.equal(
     await popup.$eval("#status", (status) => status.textContent),
     "Could not load events.",
+  );
+  assert.deepEqual(
+    await popup.$eval(".state", (state) => ({
+      title: state.querySelector("h3").textContent,
+      message: state.querySelector("p").textContent,
+      retry: state.querySelector("button").textContent,
+    })),
+    {
+      title: "A small bump in the road.",
+      message: "We could not load the events. Please try again.",
+      retry: "Try again",
+    },
   );
   assert.equal(requests.length, 1);
 
@@ -328,24 +360,40 @@ test("the popup safely renders event cards in API order", async () => {
     {
       title: "Jazz <img src=x onerror=alert(1)>",
       summary: "Live jazz in the city centre.",
-      category: "Music",
+      category: "MUSIC",
       date: "31 March 2025",
       time: "19:30",
       location: "Cultural Station",
-      sourceName: "Moj Novi Sad",
+      sourceName: "Moj Novi Sad ↗",
       sourceUrl: "https://example.com/events/jazz",
     },
     {
       title: "Spring Fair",
       summary: "Local makers and food.",
-      category: "Fair",
+      category: "FAIR",
       date: "1 April 2025",
-      time: "10:00",
+      time: "10:00–14:00",
       location: "Liberty Square",
-      sourceName: "City Events",
+      sourceName: "City Events ↗",
       sourceUrl: "https://example.org/events/spring-fair",
     },
   ]);
+  assert.deepEqual(
+    await popup.$eval(".event-card", (card) => ({
+      classes: card.className,
+      month: card.querySelector(".date-tile span").textContent,
+      day: card.querySelector(".date-tile strong").textContent,
+      hasLocationIcon: card.querySelector(".location-icon") !== null,
+      sourceLabel: card.querySelector(".event-source").ariaLabel,
+    })),
+    {
+      classes: "event event-card",
+      month: "Mar",
+      day: "31",
+      hasLocationIcon: true,
+      sourceLabel: "Open Moj Novi Sad source website (opens a new tab)",
+    },
+  );
   assert.equal(await popup.$(".event-title img"), null);
   await popup.close();
   await triggerPage.close();

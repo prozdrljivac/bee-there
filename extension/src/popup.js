@@ -32,6 +32,14 @@ const eventTimeFormatter = new Intl.DateTimeFormat("en-GB", {
   minute: "2-digit",
   hourCycle: "h23",
 });
+const eventMonthFormatter = new Intl.DateTimeFormat("en-GB", {
+  timeZone: EVENT_TIME_ZONE,
+  month: "short",
+});
+const eventDayFormatter = new Intl.DateTimeFormat("en-GB", {
+  timeZone: EVENT_TIME_ZONE,
+  day: "2-digit",
+});
 
 function dateParts(timestamp) {
   const parts = dateFormatter.formatToParts(new Date(timestamp));
@@ -115,35 +123,102 @@ function isValidEvent(event) {
   );
 }
 
+function locationIcon() {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("class", "location-icon");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("fill", "none");
+  icon.setAttribute("stroke", "currentColor");
+  icon.setAttribute("stroke-width", "1.7");
+  icon.setAttribute("stroke-linecap", "round");
+  icon.setAttribute("stroke-linejoin", "round");
+  icon.setAttribute("aria-hidden", "true");
+  const outline = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "path",
+  );
+  outline.setAttribute("d", "M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z");
+  const center = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "circle",
+  );
+  center.setAttribute("cx", "12");
+  center.setAttribute("cy", "10");
+  center.setAttribute("r", "2.5");
+  icon.append(outline, center);
+  return icon;
+}
+
 function renderEvent(event) {
+  const start = new Date(event.starts_at);
   const card = document.createElement("article");
-  card.className = "event-card";
-  card.append(
-    textElement("h2", "event-title", event.title),
-    textElement("p", "event-summary", event.summary),
+  card.className = "event event-card";
+
+  const dateTile = document.createElement("div");
+  dateTile.className = "date-tile";
+  dateTile.setAttribute("aria-hidden", "true");
+  dateTile.append(
+    textElement("span", "", eventMonthFormatter.format(start)),
+    textElement("strong", "", eventDayFormatter.format(start)),
+  );
+
+  const content = document.createElement("div");
+  content.className = "event-content";
+  const top = document.createElement("div");
+  top.className = "event-top";
+  top.append(
     textElement(
-      "p",
-      "event-category",
-      event.category.charAt(0).toUpperCase() + event.category.slice(1),
+      "span",
+      `category event-category ${event.category}`,
+      event.category.toUpperCase(),
     ),
   );
 
-  const start = new Date(event.starts_at);
   const time = document.createElement("time");
+  time.className = "time";
   time.dateTime = event.starts_at;
+  time.title = "Local time in Serbia";
+  const end = event.ends_at ? new Date(event.ends_at) : null;
+  const timeText = end
+    ? `${eventTimeFormatter.format(start)}–${eventTimeFormatter.format(end)}`
+    : eventTimeFormatter.format(start);
   time.append(
     textElement("span", "event-date", eventDateFormatter.format(start)),
-    " ",
-    textElement("span", "event-time", eventTimeFormatter.format(start)),
+    " · ",
+    textElement("span", "event-time", timeText),
   );
-  card.append(time);
-  card.append(textElement("p", "event-location", event.location_name));
 
-  const source = textElement("a", "event-source", event.source_name);
+  const venue = event.location_name?.trim();
+  const location = document.createElement("div");
+  location.className = venue
+    ? "location event-location"
+    : "location missing event-location";
+  location.append(
+    locationIcon(),
+    textElement("span", "", venue || "Location to be announced"),
+  );
+
+  const sourceRow = document.createElement("div");
+  sourceRow.className = "source";
+  const source = textElement("a", "event-source", `${event.source_name} ↗`);
   source.href = event.source_url;
   source.target = "_blank";
   source.rel = "noopener noreferrer";
-  card.append(source);
+  source.setAttribute(
+    "aria-label",
+    `Open ${event.source_name} source website (opens a new tab)`,
+  );
+  sourceRow.append(source);
+
+  content.append(
+    top,
+    textElement("h3", "event-title", event.title),
+    textElement("p", "event-summary", event.summary),
+    time,
+    location,
+    sourceRow,
+  );
+  card.append(dateTile, content);
   return card;
 }
 
@@ -151,21 +226,69 @@ function removeRetry() {
   document.querySelector("#retry")?.remove();
 }
 
-function showError(status) {
+function showLoading(status, eventList) {
+  status.className = "visually-hidden";
+  status.textContent = "Loading events…";
+  eventList.setAttribute("aria-busy", "true");
+  eventList.replaceChildren();
+  for (let index = 0; index < 2; index += 1) {
+    const skeleton = document.createElement("div");
+    skeleton.className = "skeleton";
+    skeleton.setAttribute("aria-hidden", "true");
+    skeleton.append(
+      document.createElement("div"),
+      document.createElement("div"),
+      document.createElement("div"),
+      document.createElement("div"),
+    );
+    eventList.append(skeleton);
+  }
+}
+
+function stateElement(icon, title, message) {
+  const state = document.createElement("div");
+  state.className = "state";
+  state.append(
+    textElement("div", "state-icon", icon),
+    textElement("h3", "", title),
+    textElement("p", "", message),
+  );
+  return state;
+}
+
+function showEmpty(status, eventList) {
+  status.className = "visually-hidden";
+  status.textContent = "No upcoming events.";
+  eventList.replaceChildren(
+    stateElement(
+      "✳",
+      "A quiet moment.",
+      "No upcoming events right now. Come back soon for your next good plan.",
+    ),
+  );
+}
+
+function showError(status, eventList) {
+  status.className = "visually-hidden";
   status.textContent = "Could not load events.";
-  const retry = textElement("button", "", "Retry");
+  const state = stateElement(
+    "↻",
+    "A small bump in the road.",
+    "We could not load the events. Please try again.",
+  );
+  const retry = textElement("button", "", "Try again");
   retry.id = "retry";
   retry.type = "button";
   retry.addEventListener("click", () => void requestEvents());
-  status.after(retry);
+  state.append(retry);
+  eventList.replaceChildren(state);
 }
 
 async function requestEvents() {
   const status = document.querySelector("#status");
   const eventList = document.querySelector("#event-list");
   removeRetry();
-  eventList.replaceChildren();
-  status.textContent = "Loading events…";
+  showLoading(status, eventList);
 
   try {
     const url = new URL("/api/events", API_BASE_URL);
@@ -179,10 +302,17 @@ async function requestEvents() {
       throw new TypeError("Event response is invalid");
     }
 
-    status.textContent = events.length === 0 ? "No upcoming events." : "";
-    eventList.append(...events.map(renderEvent));
+    eventList.setAttribute("aria-busy", "false");
+    if (events.length === 0) {
+      showEmpty(status, eventList);
+    } else {
+      status.className = "";
+      status.textContent = "";
+      eventList.replaceChildren(...events.map(renderEvent));
+    }
   } catch {
-    showError(status);
+    eventList.setAttribute("aria-busy", "false");
+    showError(status, eventList);
   }
 }
 

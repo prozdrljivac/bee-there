@@ -40,6 +40,7 @@ test("the release command creates a minimal Chrome upload archive", async () => 
   assert.deepEqual(Object.keys(archive).sort(), [
     "config.js",
     "manifest.json",
+    "popup.css",
     "popup.html",
     "popup.js",
   ]);
