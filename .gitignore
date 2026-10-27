@@ -1,4 +1,6 @@
+# Documentation
 docs/learning/*
+docs/adr/*
 **/TODO.md
 
 # Python
