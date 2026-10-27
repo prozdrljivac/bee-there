@@ -13,6 +13,7 @@ __pycache__/
 .coverage
 htmlcov/
 dist/
+node_modules/
 *.egg-info/
 
 # Local data

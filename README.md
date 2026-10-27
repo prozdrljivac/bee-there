@@ -1,5 +1,10 @@
 # BeeThere
 
+## Browser extension
+
+Build, test, and install the Chrome extension by following
+[`extension/README.md`](extension/README.md).
+
 ## Git hooks
 
 Install the repository hooks after cloning:

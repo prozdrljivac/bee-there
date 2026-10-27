@@ -1,0 +1,13 @@
+{
+  "name": "bee-there-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs"
+  },
+  "devDependencies": {
+    "puppeteer": "25.16.0"
+  }
+}
