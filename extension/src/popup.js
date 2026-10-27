@@ -141,6 +141,8 @@ function renderEvent(event) {
 
   const source = textElement("a", "event-source", event.source_name);
   source.href = event.source_url;
+  source.target = "_blank";
+  source.rel = "noopener noreferrer";
   card.append(source);
   return card;
 }
