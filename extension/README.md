@@ -18,11 +18,15 @@ npm ci
 
 ## Build
 
+Set the BeeThere API origin when you build:
+
 ```shell
-npm run build
+BEE_THERE_API_BASE_URL=http://127.0.0.1:8000 npm run build
 ```
 
-The unpacked extension is written to `extension/dist`.
+Use only the origin, without an API path. The build writes this value into the
+extension and grants host permission only to that origin. The unpacked
+extension is written to `extension/dist`.
 
 ## Test
 

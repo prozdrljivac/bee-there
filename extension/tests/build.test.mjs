@@ -20,9 +20,11 @@ after(async () => {
 });
 
 test("the build creates an installable action popup package", async () => {
+  const apiBaseUrl = "http://127.0.0.1:43123";
   const result = spawnSync("npm", ["run", "build"], {
     cwd: extensionDirectory,
     encoding: "utf8",
+    env: { ...process.env, BEE_THERE_API_BASE_URL: apiBaseUrl },
   });
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -35,6 +37,11 @@ test("the build creates an installable action popup package", async () => {
     name: "BeeThere",
     version: "0.1.0",
     action: { default_popup: "popup.html" },
+    host_permissions: [`${apiBaseUrl}/*`],
   });
+  assert.equal(
+    await readFile(path.join(distributionDirectory, "config.js"), "utf8"),
+    `export const API_BASE_URL = ${JSON.stringify(apiBaseUrl)};\n`,
+  );
   await readFile(path.join(distributionDirectory, "popup.html"), "utf8");
 });
