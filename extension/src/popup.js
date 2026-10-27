@@ -1,6 +1,19 @@
 import { API_BASE_URL } from "./config.js";
 
 const EVENT_TIME_ZONE = "Europe/Belgrade";
+const EVENT_CATEGORIES = new Set([
+  "theatre",
+  "music",
+  "comedy",
+  "film",
+  "exhibition",
+  "festival",
+  "sports",
+  "community",
+  "literature",
+  "fair",
+  "other",
+]);
 const dateFormatter = new Intl.DateTimeFormat("en-CA-u-ca-gregory-nu-latn", {
   timeZone: EVENT_TIME_ZONE,
   year: "numeric",
@@ -66,6 +79,42 @@ function textElement(tagName, className, text) {
   return element;
 }
 
+function isAwareDateTime(value) {
+  return (
+    typeof value === "string" &&
+    /(?:Z|[+-]\d{2}:\d{2})$/i.test(value) &&
+    Number.isFinite(Date.parse(value))
+  );
+}
+
+function isHttpUrl(value) {
+  if (typeof value !== "string") {
+    return false;
+  }
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isValidEvent(event) {
+  return (
+    event !== null &&
+    typeof event === "object" &&
+    typeof event.id === "string" &&
+    typeof event.title === "string" &&
+    typeof event.summary === "string" &&
+    EVENT_CATEGORIES.has(event.category) &&
+    isAwareDateTime(event.starts_at) &&
+    (event.ends_at === null || isAwareDateTime(event.ends_at)) &&
+    (event.location_name === null || typeof event.location_name === "string") &&
+    typeof event.source_name === "string" &&
+    isHttpUrl(event.source_url)
+  );
+}
+
 function renderEvent(event) {
   const card = document.createElement("article");
   card.className = "event-card";
@@ -96,12 +145,43 @@ function renderEvent(event) {
   return card;
 }
 
+function removeRetry() {
+  document.querySelector("#retry")?.remove();
+}
+
+function showError(status) {
+  status.textContent = "Could not load events.";
+  const retry = textElement("button", "", "Retry");
+  retry.id = "retry";
+  retry.type = "button";
+  retry.addEventListener("click", () => void requestEvents());
+  status.after(retry);
+}
+
 async function requestEvents() {
-  const url = new URL("/api/events", API_BASE_URL);
-  url.searchParams.set("from", startOfToday().toISOString());
-  const response = await fetch(url);
-  const events = await response.json();
-  document.querySelector("#event-list").append(...events.map(renderEvent));
+  const status = document.querySelector("#status");
+  const eventList = document.querySelector("#event-list");
+  removeRetry();
+  eventList.replaceChildren();
+  status.textContent = "Loading events…";
+
+  try {
+    const url = new URL("/api/events", API_BASE_URL);
+    url.searchParams.set("from", startOfToday().toISOString());
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Event request failed with status ${response.status}`);
+    }
+    const events = await response.json();
+    if (!Array.isArray(events) || !events.every(isValidEvent)) {
+      throw new TypeError("Event response is invalid");
+    }
+
+    status.textContent = events.length === 0 ? "No upcoming events." : "";
+    eventList.append(...events.map(renderEvent));
+  } catch {
+    showError(status);
+  }
 }
 
 void requestEvents();

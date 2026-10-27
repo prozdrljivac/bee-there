@@ -17,6 +17,12 @@ let server;
 let browserSession;
 const requests = [];
 let responseEvents = [];
+let responseHandler;
+
+function respondWithJson(response, body = responseEvents, statusCode = 200) {
+  response.writeHead(statusCode, { "Content-Type": "application/json" });
+  response.end(JSON.stringify(body));
+}
 
 async function waitForExtension() {
   for (let attempt = 0; attempt < 50; attempt += 1) {
@@ -60,8 +66,7 @@ async function openPopup() {
 before(async () => {
   server = createServer((request, response) => {
     requests.push(new URL(request.url, apiBaseUrl));
-    response.writeHead(200, { "Content-Type": "application/json" });
-    response.end(JSON.stringify(responseEvents));
+    responseHandler(request, response);
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
@@ -80,6 +85,7 @@ before(async () => {
 beforeEach(async () => {
   requests.length = 0;
   responseEvents = [];
+  responseHandler = (_request, response) => respondWithJson(response);
   browser = await puppeteer.launch({
     enableExtensions: [distributionDirectory],
     headless: true,
@@ -134,6 +140,126 @@ test("the popup starts with an empty event list", async () => {
     (eventList) => eventList.children.length,
   );
   assert.equal(eventCount, 0);
+  await popup.close();
+  await triggerPage.close();
+});
+
+test("the popup shows loading feedback while events are pending", async () => {
+  let pendingResponse;
+  responseHandler = (_request, response) => {
+    pendingResponse = response;
+  };
+
+  const { popup, triggerPage } = await openPopup();
+  await waitForRequest();
+  assert.equal(
+    await popup.$eval("#status", (status) => status.textContent),
+    "Loading events…",
+  );
+
+  respondWithJson(pendingResponse);
+  await popup.waitForFunction(
+    () => document.querySelector("#status").textContent !== "Loading events…",
+  );
+  await popup.close();
+  await triggerPage.close();
+});
+
+test("the popup shows a message when no events are available", async () => {
+  const { popup, triggerPage } = await openPopup();
+  await popup.waitForFunction(
+    () => document.querySelector("#status").textContent !== "Loading events…",
+  );
+  assert.equal(
+    await popup.$eval("#status", (status) => status.textContent),
+    "No upcoming events.",
+  );
+  assert.equal(await popup.$("#retry"), null);
+  await popup.close();
+  await triggerPage.close();
+});
+
+test("the popup retries after a network error", async () => {
+  let attempt = 0;
+  responseHandler = (_request, response) => {
+    attempt += 1;
+    if (attempt === 1) {
+      response.destroy();
+      return;
+    }
+    respondWithJson(response, [
+      {
+        id: "019a57c0-8800-7000-8000-000000000003",
+        title: "Recovered Event",
+        summary: "Available after retry.",
+        category: "community",
+        starts_at: "2025-03-31T18:00:00Z",
+        ends_at: null,
+        location_name: "Community Centre",
+        source_name: "City Events",
+        source_url: "https://example.org/events/recovered",
+      },
+    ]);
+  };
+
+  const { popup, triggerPage } = await openPopup();
+  await popup.waitForSelector("#retry");
+  assert.equal(
+    await popup.$eval("#status", (status) => status.textContent),
+    "Could not load events.",
+  );
+  assert.equal(requests.length, 1);
+
+  await popup.click("#retry");
+  await popup.waitForSelector(".event-card");
+  assert.equal(
+    await popup.$eval(".event-title", (title) => title.textContent),
+    "Recovered Event",
+  );
+  assert.equal(await popup.$("#retry"), null);
+  assert.equal(requests.length, 2);
+  await popup.close();
+  await triggerPage.close();
+});
+
+test("the popup reports a non-success API response", async () => {
+  responseHandler = (_request, response) => {
+    respondWithJson(response, [], 503);
+  };
+
+  const { popup, triggerPage } = await openPopup();
+  await popup.waitForSelector("#retry");
+  assert.equal(
+    await popup.$eval("#status", (status) => status.textContent),
+    "Could not load events.",
+  );
+  assert.equal(await popup.$(".event-card"), null);
+  await popup.close();
+  await triggerPage.close();
+});
+
+test("the popup reports invalid API response data", async () => {
+  responseEvents = [
+    {
+      id: "019a57c0-8800-7000-8000-000000000004",
+      title: 42,
+      summary: "The title has the wrong type.",
+      category: "other",
+      starts_at: "2025-03-31T18:00:00Z",
+      ends_at: null,
+      location_name: null,
+      source_name: "City Events",
+      source_url: "https://example.org/events/invalid",
+    },
+  ];
+
+  const { popup, triggerPage } = await openPopup();
+  await popup.waitForSelector("#retry");
+  assert.equal(
+    await popup.$eval("#status", (status) => status.textContent),
+    "Could not load events.",
+  );
+  assert.equal(await popup.$(".event-card"), null);
   await popup.close();
   await triggerPage.close();
 });
