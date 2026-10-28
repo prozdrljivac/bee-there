@@ -6,6 +6,7 @@ import subprocess
 from http.client import RemoteDisconnected
 from pathlib import Path
 from time import monotonic, sleep
+from unittest.mock import MagicMock, Mock
 from urllib.error import URLError
 from urllib.request import urlopen
 from uuid import uuid4
@@ -24,6 +25,38 @@ def _docker(*args: str, input: str | None = None) -> str:
         check=True,
         timeout=300,
     ).stdout.strip()
+
+
+def _wait_for_health(base_url: str, container: str) -> None:
+    deadline = monotonic() + 20
+    while True:
+        try:
+            with urlopen(f"{base_url}/health", timeout=1) as response:
+                assert response.status == 200
+                assert json.load(response) == {"status": "ok"}
+            return
+        except URLError, TimeoutError, RemoteDisconnected, ConnectionResetError:
+            if monotonic() >= deadline:
+                pytest.fail(_docker("logs", container))
+            sleep(0.2)
+
+
+def test_health_check_retries_a_connection_reset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    response = MagicMock()
+    response.__enter__.return_value = response
+    response.status = 200
+    response.read.return_value = b'{"status": "ok"}'
+    request = Mock(
+        side_effect=[ConnectionResetError("reset by peer"), response]
+    )
+    monkeypatch.setattr("test_container.urlopen", request)
+    monkeypatch.setattr("test_container.sleep", lambda _seconds: None)
+
+    _wait_for_health("http://127.0.0.1:8000", "test-api")
+
+    assert request.call_count == 2
 
 
 @pytest.mark.skipif(
@@ -88,17 +121,7 @@ with sqlite3.connect("/data/bee-there.sqlite3") as db:
             )
             port = _docker("port", container, "8000/tcp").rsplit(":", 1)[1]
             base_url = f"http://127.0.0.1:{port}"
-            deadline = monotonic() + 20
-            while True:
-                try:
-                    with urlopen(f"{base_url}/health", timeout=1) as response:
-                        assert response.status == 200
-                        assert json.load(response) == {"status": "ok"}
-                    break
-                except URLError, TimeoutError, RemoteDisconnected:
-                    if monotonic() >= deadline:
-                        pytest.fail(_docker("logs", container))
-                    sleep(0.2)
+            _wait_for_health(base_url, container)
             with urlopen(
                 f"{base_url}/api/events?from=2026-10-26T00:00:00%2B00:00",
                 timeout=5,

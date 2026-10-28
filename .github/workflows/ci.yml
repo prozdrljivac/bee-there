@@ -83,7 +83,7 @@ jobs:
         # Ubuntu restricts user namespaces for Chrome for Testing by default.
         # Grant access only to this executable, not to all runner processes.
         run: |
-          chrome="$(node --input-type=module -e 'import puppeteer from "puppeteer"; process.stdout.write(puppeteer.executablePath())')"
+          chrome="$(node --input-type=module -e 'import puppeteer from "puppeteer"; process.stdout.write(await puppeteer.executablePath())')"
           sudo tee /etc/apparmor.d/beethere-puppeteer >/dev/null <<EOF
           abi <abi/4.0>,
           include <tunables/global>
