@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+from http.client import RemoteDisconnected
 from pathlib import Path
 from time import monotonic, sleep
 from urllib.error import URLError
@@ -94,7 +95,7 @@ with sqlite3.connect("/data/bee-there.sqlite3") as db:
                         assert response.status == 200
                         assert json.load(response) == {"status": "ok"}
                     break
-                except URLError, TimeoutError:
+                except URLError, TimeoutError, RemoteDisconnected:
                     if monotonic() >= deadline:
                         pytest.fail(_docker("logs", container))
                     sleep(0.2)
