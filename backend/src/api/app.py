@@ -17,6 +17,11 @@ def create_app(
     """Create the BeeThere HTTP application."""
     app = FastAPI(title="BeeThere")
 
+    @app.get("/health")
+    async def health() -> dict[str, str]:
+        """Report process health without database or network access."""
+        return {"status": "ok"}
+
     @app.get("/api/events", response_model=list[EventResponse])
     def list_events(
         from_time: Annotated[AwareDatetime, Query(alias="from")],

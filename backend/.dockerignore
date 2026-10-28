@@ -1,0 +1,40 @@
+# Local environments and dependency directories
+**/.venv/
+**/venv/
+**/node_modules/
+
+# Caches and test output
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.coverage
+**/.coverage.*
+**/htmlcov/
+**/coverage.xml
+**/tests/
+
+# Local databases and SQLite sidecar files
+**/*.sqlite*
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/*.db-journal
+
+# Credentials
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.crt
+**/*.p12
+**/*.pfx
+
+# Repository metadata and build output
+**/.git/
+**/.DS_Store
+**/graphify-out/
+**/build/
+**/dist/
+**/*.egg-info/
