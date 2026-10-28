@@ -36,7 +36,21 @@ test("the build creates an installable action popup package", async () => {
     manifest_version: 3,
     name: "BeeThere",
     version: "0.1.0",
-    action: { default_popup: "popup.html" },
+    icons: {
+      16: "assets/logo/beethere-icon-16.png",
+      32: "assets/logo/beethere-icon-32.png",
+      48: "assets/logo/beethere-icon-48.png",
+      128: "assets/logo/beethere-icon-128.png",
+    },
+    action: {
+      default_popup: "popup.html",
+      default_title: "BeeThere",
+      default_icon: {
+        16: "assets/logo/beethere-icon-16.png",
+        32: "assets/logo/beethere-icon-32.png",
+        48: "assets/logo/beethere-icon-48.png",
+      },
+    },
     host_permissions: [`${apiBaseUrl}/*`],
   });
   assert.equal(
@@ -44,4 +58,15 @@ test("the build creates an installable action popup package", async () => {
     `export const API_BASE_URL = ${JSON.stringify(apiBaseUrl)};\n`,
   );
   await readFile(path.join(distributionDirectory, "popup.html"), "utf8");
+  for (const size of [16, 32, 48, 128]) {
+    const icon = await readFile(
+      path.join(
+        distributionDirectory,
+        "assets",
+        "logo",
+        `beethere-icon-${size}.png`,
+      ),
+    );
+    assert.ok(icon.length > 0);
+  }
 });

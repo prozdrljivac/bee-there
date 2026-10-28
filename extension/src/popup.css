@@ -130,6 +130,34 @@ body {
   letter-spacing: -1.3px;
 }
 
+.brand-logo {
+  display: block;
+  width: 126px;
+  height: auto;
+}
+
+.brand-logo-dark {
+  display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .brand-logo-light {
+    display: none;
+  }
+
+  :root:not([data-theme="light"]) .brand-logo-dark {
+    display: block;
+  }
+}
+
+:root[data-theme="dark"] .brand-logo-light {
+  display: none;
+}
+
+:root[data-theme="dark"] .brand-logo-dark {
+  display: block;
+}
+
 .theme-switch {
   display: flex;
   margin: 0;

@@ -38,6 +38,12 @@ test("the release command creates a minimal Chrome upload archive", async () => 
 
   const archive = unzipSync(await readFile(archivePath));
   assert.deepEqual(Object.keys(archive).sort(), [
+    "assets/logo/beethere-icon-128.png",
+    "assets/logo/beethere-icon-16.png",
+    "assets/logo/beethere-icon-32.png",
+    "assets/logo/beethere-icon-48.png",
+    "assets/logo/beethere-logo-dark.svg",
+    "assets/logo/beethere-logo-light.svg",
     "config.js",
     "manifest.json",
     "popup.css",
@@ -49,7 +55,21 @@ test("the release command creates a minimal Chrome upload archive", async () => 
     manifest_version: 3,
     name: "BeeThere",
     version: "0.1.0",
-    action: { default_popup: "popup.html" },
+    icons: {
+      16: "assets/logo/beethere-icon-16.png",
+      32: "assets/logo/beethere-icon-32.png",
+      48: "assets/logo/beethere-icon-48.png",
+      128: "assets/logo/beethere-icon-128.png",
+    },
+    action: {
+      default_popup: "popup.html",
+      default_title: "BeeThere",
+      default_icon: {
+        16: "assets/logo/beethere-icon-16.png",
+        32: "assets/logo/beethere-icon-32.png",
+        48: "assets/logo/beethere-icon-48.png",
+      },
+    },
     host_permissions: [`${apiBaseUrl}/*`],
   });
   for (const contents of Object.values(archive)) {

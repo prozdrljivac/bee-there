@@ -141,6 +141,48 @@ test("the toolbar action opens the BeeThere visual shell", async () => {
   await triggerPage.close();
 });
 
+test("the header logo follows the selected color scheme", async () => {
+  const { popup, triggerPage } = await openPopup();
+  await popup.emulateMediaFeatures([
+    { name: "prefers-color-scheme", value: "light" },
+  ]);
+  assert.deepEqual(
+    await popup.$eval(".brand", (brand) => ({
+      lightSource: brand.querySelector(".brand-logo-light").getAttribute("src"),
+      darkSource: brand.querySelector(".brand-logo-dark").getAttribute("src"),
+      lightDisplay: getComputedStyle(
+        brand.querySelector(".brand-logo-light"),
+      ).display,
+      darkDisplay: getComputedStyle(
+        brand.querySelector(".brand-logo-dark"),
+      ).display,
+    })),
+    {
+      lightSource: "assets/logo/beethere-logo-light.svg",
+      darkSource: "assets/logo/beethere-logo-dark.svg",
+      lightDisplay: "block",
+      darkDisplay: "none",
+    },
+  );
+
+  await popup.emulateMediaFeatures([
+    { name: "prefers-color-scheme", value: "dark" },
+  ]);
+  assert.deepEqual(
+    await popup.$eval(".brand", (brand) => ({
+      lightDisplay: getComputedStyle(
+        brand.querySelector(".brand-logo-light"),
+      ).display,
+      darkDisplay: getComputedStyle(
+        brand.querySelector(".brand-logo-dark"),
+      ).display,
+    })),
+    { lightDisplay: "none", darkDisplay: "block" },
+  );
+  await popup.close();
+  await triggerPage.close();
+});
+
 test("the header stays visible while popup content scrolls", async () => {
   const { popup, triggerPage } = await openPopup();
   const layout = await popup.evaluate(async () => {
