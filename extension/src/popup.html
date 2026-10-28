@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>BeeThere · Your next good plan</title>
+    <script src="theme.js"></script>
     <link rel="stylesheet" href="popup.css">
   </head>
   <body>
@@ -12,12 +13,26 @@
         <a class="brand" href="popup.html" aria-label="BeeThere home">
           <h1>BeeThere</h1>
         </a>
+        <fieldset class="theme-switch">
+          <legend class="visually-hidden">Theme</legend>
+          <label for="theme-system">
+            <input id="theme-system" type="radio" name="theme" value="system">
+            <span>System</span>
+          </label>
+          <label for="theme-light">
+            <input id="theme-light" type="radio" name="theme" value="light">
+            <span>Light</span>
+          </label>
+          <label for="theme-dark">
+            <input id="theme-dark" type="radio" name="theme" value="dark">
+            <span>Dark</span>
+          </label>
+        </fieldset>
       </header>
       <main>
         <section class="events-section" aria-label="Upcoming events">
           <div class="section-heading">
             <h2>Upcoming events</h2>
-            <span class="from-today"><i></i>From today</span>
           </div>
           <p id="status" role="status" aria-live="polite"></p>
           <div id="event-list" aria-live="polite" aria-busy="true"></div>

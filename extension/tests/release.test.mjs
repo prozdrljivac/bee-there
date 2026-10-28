@@ -43,6 +43,7 @@ test("the release command creates a minimal Chrome upload archive", async () => 
     "popup.css",
     "popup.html",
     "popup.js",
+    "theme.js",
   ]);
   assert.deepEqual(JSON.parse(strFromU8(archive["manifest.json"])), {
     manifest_version: 3,

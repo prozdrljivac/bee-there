@@ -130,10 +130,122 @@ test("the toolbar action opens the BeeThere visual shell", async () => {
   const shell = await popup.$eval(".popup", (element) => ({
     brand: element.querySelector(".brand").textContent.trim(),
     width: getComputedStyle(element).width,
+    hasFromTodayLabel: element.querySelector(".from-today") !== null,
   }));
-  assert.deepEqual(shell, { brand: "BeeThere", width: "420px" });
+  assert.deepEqual(shell, {
+    brand: "BeeThere",
+    width: "420px",
+    hasFromTodayLabel: false,
+  });
   await popup.close();
   await triggerPage.close();
+});
+
+test("the header stays visible while popup content scrolls", async () => {
+  const { popup, triggerPage } = await openPopup();
+  const layout = await popup.evaluate(async () => {
+    const shell = document.querySelector(".popup");
+    const header = document.querySelector(".header");
+    document.querySelector("#event-list").style.height = "1200px";
+    const initialHeaderTop = header.getBoundingClientRect().top;
+    shell.scrollTop = 300;
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    return {
+      headerPosition: getComputedStyle(header).position,
+      headerTop: getComputedStyle(header).top,
+      popupHeight: getComputedStyle(shell).height,
+      popupOverflow: getComputedStyle(shell).overflowY,
+      scrollTop: shell.scrollTop,
+      headerMoved: header.getBoundingClientRect().top !== initialHeaderTop,
+    };
+  });
+  assert.deepEqual(layout, {
+    headerPosition: "sticky",
+    headerTop: "0px",
+    popupHeight: "600px",
+    popupOverflow: "auto",
+    scrollTop: 300,
+    headerMoved: false,
+  });
+  await popup.close();
+  await triggerPage.close();
+});
+
+test("the popup follows the browser color scheme by default", async () => {
+  const { popup, triggerPage } = await openPopup();
+  await popup.emulateMediaFeatures([
+    { name: "prefers-color-scheme", value: "dark" },
+  ]);
+  assert.deepEqual(
+    await popup.evaluate(() => ({
+      themeOverride: document.documentElement.dataset.theme ?? null,
+      canvas: getComputedStyle(document.body).backgroundColor,
+      paper: getComputedStyle(document.querySelector(".popup")).backgroundColor,
+    })),
+    {
+      themeOverride: null,
+      canvas: "rgb(16, 21, 17)",
+      paper: "rgb(22, 27, 24)",
+    },
+  );
+  await popup.close();
+  await triggerPage.close();
+});
+
+test("the theme switch persists an override and can return to system", async () => {
+  const { popup, triggerPage } = await openPopup();
+  await popup.emulateMediaFeatures([
+    { name: "prefers-color-scheme", value: "dark" },
+  ]);
+  assert.equal(await popup.$eval("#theme-system", (input) => input.checked), true);
+
+  await popup.emulateMediaFeatures([
+    { name: "prefers-color-scheme", value: "light" },
+  ]);
+  await popup.click("label[for='theme-dark']");
+  assert.deepEqual(
+    await popup.evaluate(() => ({
+      selected: document.documentElement.dataset.theme,
+      stored: localStorage.getItem("bee-there-theme"),
+      paper: getComputedStyle(document.querySelector(".popup")).backgroundColor,
+    })),
+    { selected: "dark", stored: "dark", paper: "rgb(22, 27, 24)" },
+  );
+
+  await popup.emulateMediaFeatures([
+    { name: "prefers-color-scheme", value: "dark" },
+  ]);
+  await popup.click("label[for='theme-light']");
+  assert.deepEqual(
+    await popup.evaluate(() => ({
+      selected: document.documentElement.dataset.theme,
+      stored: localStorage.getItem("bee-there-theme"),
+      paper: getComputedStyle(document.querySelector(".popup")).backgroundColor,
+    })),
+    { selected: "light", stored: "light", paper: "rgb(252, 251, 247)" },
+  );
+  await popup.close();
+  await triggerPage.close();
+
+  const reopened = await openPopup();
+  assert.equal(
+    await reopened.popup.$eval("#theme-light", (input) => input.checked),
+    true,
+  );
+  await reopened.popup.emulateMediaFeatures([
+    { name: "prefers-color-scheme", value: "dark" },
+  ]);
+  await reopened.popup.click("label[for='theme-system']");
+  assert.deepEqual(
+    await reopened.popup.evaluate(() => ({
+      selected: document.documentElement.dataset.theme ?? null,
+      stored: localStorage.getItem("bee-there-theme"),
+      paper: getComputedStyle(document.querySelector(".popup")).backgroundColor,
+    })),
+    { selected: null, stored: null, paper: "rgb(22, 27, 24)" },
+  );
+  await reopened.popup.close();
+  await reopened.triggerPage.close();
 });
 
 test("the popup starts with no event cards", async () => {

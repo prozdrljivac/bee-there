@@ -1,10 +1,87 @@
 :root {
   color-scheme: light;
-  --ink: #262b24;
-  --muted: #7b7e71;
+  --canvas: #eaece5;
   --paper: #fcfbf7;
-  --green: #314f37;
+  --card: #fffefa;
+  --ink: #262b24;
+  --muted: #818477;
+  --secondary: #66735c;
   --line: #e6e7de;
+  --tile: #f0f1e8;
+  --tile-text: #5c6b52;
+  --link: #586d48;
+  --visited: #80638d;
+  --pressed: #263f29;
+  --pressed-bg: #e6ebdf;
+  --focus: #526b3f;
+  --green: #314f37;
+  --button-hover: #263f29;
+  --button-pressed: #1a2f1c;
+  --purple-bg: #f1eaf5;
+  --purple-text: #8b6d9a;
+  --amber-bg: #faeddf;
+  --amber-text: #a08056;
+  --neutral-bg: #edf0e4;
+  --neutral-text: #66734b;
+  --skeleton: #e9ecdf;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --canvas: #101511;
+    --paper: #161b18;
+    --card: #202722;
+    --ink: #f0f1e9;
+    --muted: #b5bcae;
+    --secondary: #bacbb0;
+    --line: #465247;
+    --tile: #303d31;
+    --tile-text: #c4d7af;
+    --link: #c2dca7;
+    --visited: #d7b9eb;
+    --pressed: #e0f0ce;
+    --pressed-bg: #3b5035;
+    --focus: #d3eaa9;
+    --green: #354f3a;
+    --button-hover: #466343;
+    --button-pressed: #263e2a;
+    --purple-bg: #3c3048;
+    --purple-text: #e0c1ef;
+    --amber-bg: #443827;
+    --amber-text: #edcc9e;
+    --neutral-bg: #303e2e;
+    --neutral-text: #c8d9b5;
+    --skeleton: #354132;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #101511;
+  --paper: #161b18;
+  --card: #202722;
+  --ink: #f0f1e9;
+  --muted: #b5bcae;
+  --secondary: #bacbb0;
+  --line: #465247;
+  --tile: #303d31;
+  --tile-text: #c4d7af;
+  --link: #c2dca7;
+  --visited: #d7b9eb;
+  --pressed: #e0f0ce;
+  --pressed-bg: #3b5035;
+  --focus: #d3eaa9;
+  --green: #354f3a;
+  --button-hover: #466343;
+  --button-pressed: #263e2a;
+  --purple-bg: #3c3048;
+  --purple-text: #e0c1ef;
+  --amber-bg: #443827;
+  --amber-text: #edcc9e;
+  --neutral-bg: #303e2e;
+  --neutral-text: #c8d9b5;
+  --skeleton: #354132;
 }
 
 * {
@@ -14,7 +91,7 @@
 body {
   width: 420px;
   margin: 0;
-  background: #eaece5;
+  background: var(--canvas);
   color: var(--ink);
   font-family: Arial, Helvetica, sans-serif;
   font-size: 13px;
@@ -22,17 +99,23 @@ body {
 
 .popup {
   width: 420px;
-  min-height: 600px;
+  height: 600px;
+  overflow-y: auto;
   margin: auto;
   background: var(--paper);
 }
 
 .header {
+  position: sticky;
+  z-index: 10;
+  top: 0;
   display: flex;
   height: 68px;
   align-items: center;
+  justify-content: space-between;
   padding: 0 25px;
   border-bottom: 1px solid var(--line);
+  background: var(--paper);
 }
 
 .brand {
@@ -45,6 +128,46 @@ body {
   font-size: 25px;
   font-weight: 800;
   letter-spacing: -1.3px;
+}
+
+.theme-switch {
+  display: flex;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--tile);
+}
+
+.theme-switch label {
+  position: relative;
+  cursor: pointer;
+}
+
+.theme-switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.theme-switch span {
+  display: block;
+  padding: 5px 7px;
+  border-radius: 5px;
+  color: var(--secondary);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.theme-switch input:checked + span {
+  background: var(--card);
+  color: var(--ink);
+}
+
+.theme-switch input:focus-visible + span {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 .events-section {
@@ -64,21 +187,6 @@ body {
   letter-spacing: -0.5px;
 }
 
-.from-today {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: #757c6b;
-  font-size: 10px;
-}
-
-.from-today i {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: #6d875b;
-}
-
 #status:empty {
   display: none;
 }
@@ -94,7 +202,7 @@ body {
   padding: 16px 13px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: #fffefa;
+  background: var(--card);
 }
 
 .date-tile {
@@ -102,8 +210,8 @@ body {
   height: 51px;
   padding: 7px 0;
   border-radius: 7px;
-  background: #f0f1e8;
-  color: #5c6b52;
+  background: var(--tile);
+  color: var(--tile-text);
   text-align: center;
 }
 
@@ -140,8 +248,8 @@ body {
   max-width: 100%;
   padding: 4px 6px;
   border-radius: 4px;
-  background: #edf0e4;
-  color: #66734b;
+  background: var(--neutral-bg);
+  color: var(--neutral-text);
   font-size: 8px;
   font-weight: 700;
   line-height: 1.5;
@@ -150,24 +258,24 @@ body {
 
 .category.music,
 .category.theatre {
-  background: #f1eaf5;
-  color: #8b6d9a;
+  background: var(--purple-bg);
+  color: var(--purple-text);
 }
 
 .category.exhibition {
-  background: #faeddf;
-  color: #a08056;
+  background: var(--amber-bg);
+  color: var(--amber-text);
 }
 
 .category.fair {
-  background: #f5ecd9;
-  color: #968041;
+  background: var(--amber-bg);
+  color: var(--amber-text);
 }
 
 .time {
   display: block;
   margin-bottom: 8px;
-  color: #66735c;
+  color: var(--secondary);
   font-size: 11px;
 }
 
@@ -180,7 +288,7 @@ body {
 
 .event p {
   margin: 0 0 13px;
-  color: #818477;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -190,13 +298,13 @@ body {
   align-items: flex-start;
   gap: 6px;
   margin-bottom: 11px;
-  color: #717969;
+  color: var(--secondary);
   font-size: 11px;
   line-height: 1.6;
 }
 
 .location.missing {
-  color: #818477;
+  color: var(--muted);
 }
 
 .location-icon {
@@ -210,14 +318,14 @@ body {
   display: flex;
   align-items: center;
   padding-top: 9px;
-  border-top: 1px solid #eeeee6;
-  color: #8b8d80;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
   font-size: 9px;
 }
 
 .source a {
   padding: 5px 2px;
-  color: #586d48;
+  color: var(--link);
   font-size: 10px;
   font-weight: 700;
   line-height: 1.5;
@@ -226,7 +334,7 @@ body {
 }
 
 .source a:visited {
-  color: #80638d;
+  color: var(--visited);
 }
 
 .source a:hover {
@@ -234,8 +342,8 @@ body {
 }
 
 .source a:active {
-  background: #e6ebdf;
-  color: #263f29;
+  background: var(--pressed-bg);
+  color: var(--pressed);
 }
 
 .event h3,
@@ -253,7 +361,7 @@ body {
 
 .state-icon {
   margin-bottom: 13px;
-  color: #a2ac8a;
+  color: var(--secondary);
   font-size: 32px;
 }
 
@@ -280,11 +388,11 @@ body {
 }
 
 .state button:hover {
-  background: #263f29;
+  background: var(--button-hover);
 }
 
 .state button:active {
-  background: #1a2f1c;
+  background: var(--button-pressed);
 }
 
 .skeleton {
@@ -300,7 +408,7 @@ body {
   height: 9px;
   margin: 0 0 15px;
   border-radius: 4px;
-  background: #e9ecdf;
+  background: var(--skeleton);
   animation: pulse 1s ease-in-out infinite alternate;
 }
 
@@ -317,7 +425,7 @@ body {
 .source a:focus-visible,
 .state button:focus-visible {
   border-radius: 3px;
-  outline: 2px solid #526b3f;
+  outline: 2px solid var(--focus);
   outline-offset: 3px;
 }
 
@@ -351,7 +459,7 @@ body {
 
   .popup {
     overflow: hidden;
-    border: 1px solid #dfe2d6;
+    border: 1px solid var(--line);
     border-radius: 17px;
     box-shadow: 0 18px 65px #24341f12;
   }
