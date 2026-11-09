@@ -97,9 +97,22 @@ beforeEach(async () => {
       await session.send("Emulation.setTimezoneOverride", {
         timezoneId: "America/Los_Angeles",
       });
-      await session.send("Emulation.setVirtualTimePolicy", {
-        policy: "advance",
-        initialVirtualTime: Date.parse("2025-03-30T22:30:00Z") / 1000,
+      // Freeze dates without pausing page loading, timers, or network requests.
+      await session.send("Page.enable");
+      await session.send("Page.addScriptToEvaluateOnNewDocument", {
+        runImmediately: true,
+        source: `(() => {
+          const NativeDate = Date;
+          const fixedTime = NativeDate.parse("2025-03-30T22:30:00Z");
+          globalThis.Date = class extends NativeDate {
+            constructor(...args) {
+              super(...(args.length ? args : [fixedTime]));
+            }
+            static now() {
+              return fixedTime;
+            }
+          };
+        })();`,
       });
       await session.send("Runtime.runIfWaitingForDebugger");
     })().catch((error) => {
@@ -446,6 +459,17 @@ test("the popup reports invalid API response data", async () => {
     "Could not load events.",
   );
   assert.equal(await popup.$(".event-card"), null);
+  await popup.close();
+  await triggerPage.close();
+});
+
+test("the popup test clock stays fixed while real time passes", async () => {
+  const { popup, triggerPage } = await openPopup();
+  const fixedTime = Date.parse("2025-03-30T22:30:00Z");
+  assert.equal(await popup.evaluate(() => Date.now()), fixedTime);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(await popup.evaluate(() => Date.now()), fixedTime);
+  assert.equal(await popup.evaluate(() => new Date().getTime()), fixedTime);
   await popup.close();
   await triggerPage.close();
 });

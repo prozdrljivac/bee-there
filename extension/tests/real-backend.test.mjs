@@ -201,9 +201,22 @@ for title, starts_at, path in (
       await session.send("Emulation.setTimezoneOverride", {
         timezoneId: "America/Los_Angeles",
       });
-      await session.send("Emulation.setVirtualTimePolicy", {
-        policy: "advance",
-        initialVirtualTime: Date.parse("2025-03-30T22:30:00Z") / 1000,
+      // Freeze dates without pausing page loading, timers, or network requests.
+      await session.send("Page.enable");
+      await session.send("Page.addScriptToEvaluateOnNewDocument", {
+        runImmediately: true,
+        source: `(() => {
+          const NativeDate = Date;
+          const fixedTime = NativeDate.parse("2025-03-30T22:30:00Z");
+          globalThis.Date = class extends NativeDate {
+            constructor(...args) {
+              super(...(args.length ? args : [fixedTime]));
+            }
+            static now() {
+              return fixedTime;
+            }
+          };
+        })();`,
       });
       await session.send("Runtime.runIfWaitingForDebugger");
     })().catch((error) => {
