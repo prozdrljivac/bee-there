@@ -1,0 +1,4 @@
+# No accepted exceptions. See docs/security-scanning.md before adding one.
+vulnerabilities: []
+misconfigurations: []
+secrets: []

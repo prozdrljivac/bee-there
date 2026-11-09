@@ -22,5 +22,8 @@ node_modules/
 *.sqlite3-shm
 *.sqlite3-wal
 
+# Local security reports (can contain secret findings)
+.trivy-reports/
+
 # Local Graph DB for LLM
 graphify-out

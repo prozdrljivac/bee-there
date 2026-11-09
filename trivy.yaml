@@ -1,0 +1,8 @@
+# Shared by CI and scripts/scan-security.sh. Keep all severities in JSON reports.
+ignorefile: .trivyignore.yaml
+
+pkg:
+  include-dev-deps: true
+
+vulnerability:
+  ignore-unfixed: false

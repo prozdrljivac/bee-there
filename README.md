@@ -17,15 +17,24 @@ and pushes to `main`:
   and all extension tests, including the clean release journey with the real
   backend. An executable-specific AppArmor rule enables Chrome's sandbox on
   Ubuntu; the tests do not use `--no-sandbox`.
-- **Publish backend image:** runs only after both jobs pass on a push to
-  `main`. It builds `linux/amd64` and publishes
-  `ghcr.io/<owner>/<repository>:sha-<full-commit-sha>`. Pull requests cannot
-  publish images. No `latest` tag is published.
+- **Project security:** Trivy checks dependencies (including development
+  dependencies), infrastructure configuration, and secrets.
+- **Backend image security and publish:** after the other jobs pass, builds
+  `linux/amd64` and scans it with Trivy. Only pushes to `main` publish the exact
+  scanned image as `ghcr.io/<owner>/<repository>:sha-<full-commit-sha>`.
+  Pull requests scan but cannot publish. No `latest` tag is published.
 
-The jobs use read-only repository access. Only publishing receives
-`packages: write`, using GitHub's built-in `GITHUB_TOKEN`; no personal token
-is needed. Actions are pinned to full commit SHAs. Configure branch protection
-in GitHub to require **Backend quality** and **Extension tests** before merging.
+Trivy blocks HIGH and CRITICAL findings, including unfixed vulnerabilities.
+All-severity JSON reports are saved as workflow artifacts for seven days.
+See [security scanning](docs/security-scanning.md) for local commands,
+coverage, and the reviewed exception policy.
+
+The jobs use read-only repository access. Only the image job receives
+`packages: write`; registry login and publishing run only on pushes to `main`,
+using GitHub's built-in `GITHUB_TOKEN`. No personal token is needed.
+Actions are pinned to full commit SHAs. Configure branch protection in GitHub
+to require **Backend quality**, **Extension tests**, **Project security**, and
+**Backend image security and publish** before merging.
 
 ### Promote a backend image
 
