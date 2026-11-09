@@ -67,6 +67,11 @@ Install the repository hooks after cloning:
 uv run --project backend pre-commit install --hook-type pre-commit --hook-type commit-msg
 ```
 
+The Gitleaks hook blocks detected secrets in staged changes. Its first run
+builds the pinned release with Go and needs network access. See
+[security scanning](docs/security-scanning.md#gitleaks-staged-changes-and-publication-review)
+for setup requirements, full-history scans, and false-positive review.
+
 Commit messages must use the Conventional Commits header format:
 
 ```text

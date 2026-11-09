@@ -4,6 +4,77 @@ CI uses Trivy **v0.76.2**, installed by a commit-pinned setup action.
 The shared policy is in [`trivy.yaml`](../trivy.yaml). The entry point is
 [`scripts/scan-security.sh`](../scripts/scan-security.sh).
 
+## Gitleaks: staged changes and publication review
+
+The [Gitleaks v8.30.1](https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1)
+pre-commit hook blocks detected secrets in **staged changes**. It uses the default
+rules and redacts findings. It is separate from Trivy and does not run in CI.
+
+Install the hooks as shown in the root [README](../README.md#git-hooks).
+Pre-commit builds the pinned Gitleaks source with Go (1.24.11 or newer).
+Pre-commit can download Go if it is absent; update an older installed Go first.
+The first run needs network access. A separate Gitleaks install is not needed
+for the hook.
+
+```shell
+uv run --project backend pre-commit run gitleaks --all-files
+```
+
+Despite `--all-files`, this hook scans only the staged diff. It does **not**
+replace a tracked-tree or full-history review. Hooks are local and can be
+bypassed; each contributor must install them.
+
+### Repeat the publication scans
+
+Install the pinned Gitleaks release separately for these commands. Run from
+the repository root in Bash. Review redacted output in the terminal only.
+Do not save or commit publication reviews or scan reports.
+
+First confirm that this is not a shallow clone and fetch all intended branches
+and tags. Review `git remote -v`, `git ls-remote origin`, and local refs to check
+coverage. `--all` scans only refs available locally, not unseen remote history.
+For a shallow clone, fetch the missing history before scanning.
+
+```shell
+git rev-parse --is-shallow-repository
+git fetch --all --tags
+git for-each-ref --format='%(refname)'
+
+# Copy current tracked contents, not untracked dependencies or local secrets.
+# Requires rsync. Restore tracked deletions first; copy errors must stop the scan.
+(
+  snapshot=$(mktemp -d) || exit 1
+  trap 'rm -rf "$snapshot"' EXIT
+  git ls-files -z > "$snapshot/tracked-files" || exit 1
+  rsync -a --from0 --files-from="$snapshot/tracked-files" ./ "$snapshot/" || exit 1
+  rm "$snapshot/tracked-files" || exit 1
+  gitleaks dir "$snapshot" --redact=100 --verbose
+)
+
+gitleaks git . --log-opts="--all --full-history" --redact=100 --verbose
+```
+
+Check each command's exit code: `0` means no findings, `1` means findings,
+and other nonzero values indicate an error. Do not treat a scan error as a
+clean result. Scan submodules separately if they are added later.
+
+### Review findings and false positives
+
+1. Review the rule, path, line, and commit in the redacted terminal output privately.
+2. If a credential is real, revoke or rotate it first. Remove it from files;
+   decide whether history must be rewritten before publication. Rerun both scans.
+3. For a proven false positive, propose the exact finding `Fingerprint` in
+   `.gitleaksignore`. Record the reason, owner, review link, and review date in
+   an adjacent comment. Get user approval before adding the exception.
+4. For a dummy fixture that needs a line-level exception, review a
+   `gitleaks:allow` comment instead. Never exempt an entire test directory,
+   disable a rule, or use a baseline to hide an unreviewed leak.
+5. Rerun the hook and both scans after an exception. Check that a synthetic
+   secret outside the exception still fails. Remove obsolete exceptions.
+
+There are currently **no Gitleaks exceptions or custom rules**.
+See the [release-specific configuration and ignore documentation](https://github.com/gitleaks/gitleaks/blob/v8.30.1/README.md#configuration).
+
 ## Coverage and failure policy
 
 - **Project security:** scans the repository for known vulnerabilities in
