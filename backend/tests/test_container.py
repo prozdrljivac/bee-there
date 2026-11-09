@@ -79,6 +79,17 @@ def test_container_ingests_and_serves_a_persistent_database() -> None:
             f"type=volume,src={volume},dst=/data",
         )
         assert _docker("run", "--rm", image, "id", "-u") == "10001"
+        _docker(
+            "run",
+            "--rm",
+            *options,
+            image,
+            "python",
+            "-c",
+            "import importlib.util; "
+            "assert importlib.util.find_spec('pip') is None; "
+            "assert importlib.util.find_spec('ensurepip') is None",
+        )
         _docker("run", "--rm", *options, image, "alembic", "upgrade", "head")
         _docker(
             "run",

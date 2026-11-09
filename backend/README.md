@@ -18,6 +18,10 @@ The application uses `bee-there.sqlite3` by default. Set
 
 Build from the repository root. The build installs only locked runtime
 dependencies with uv; tests and local databases are excluded from the context.
+Both stages use Python 3.14 on Alpine 3.23 (musl, not glibc). Runtime OS packages
+are upgraded at build time. pip and ensurepip are removed from the final image;
+change dependencies in `pyproject.toml` and `uv.lock`, then rebuild instead of
+installing packages into a running container.
 
 ```shell
 docker build -t bee-there:local backend
@@ -78,7 +82,8 @@ With Docker running, execute from `backend`:
 BEE_THERE_TEST_CONTAINER=1 uv run pytest tests/test_container.py
 ```
 
-This opt-in test builds an image, checks the non-root UID, applies migrations,
+This opt-in test builds an image, checks the non-root UID and absence of pip
+and ensurepip, applies migrations,
 ingests local HTML fixtures, and queries `/health` and `/api/events`. It runs
 with a read-only root filesystem and a writable named volume, then recreates
 the API container to check persistence. It removes its containers, image, and
