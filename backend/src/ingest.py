@@ -6,7 +6,6 @@ from infrastructure.config import (
     database_path_from_environment,
     user_agent_from_environment,
 )
-from infrastructure.migrations import upgrade_database
 from modules.events.sqlite import SQLiteEventRepository
 from modules.ingestion import IngestionResult, IngestionService
 from modules.ingestion.moj_novi_sad import MojNoviSadExtractor
@@ -23,8 +22,7 @@ def run_moj_novi_sad_ingestion(
     database_path: str | Path,
     page_client: PageClient,
 ) -> IngestionResult:
-    """Fetch, extract, and store Moj Novi Sad events."""
-    upgrade_database(database_path)
+    """Fetch, extract, and store events in an already migrated database."""
     sources = SQLiteSourceRepository(database_path)
     source = sources.get_by_base_url(_MOJ_NOVI_SAD_URL)
     if source is None:

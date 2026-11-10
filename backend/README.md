@@ -95,15 +95,16 @@ and [FastAPI containers guide](https://fastapi.tiangolo.com/deployment/docker/).
 
 ## Test the end-to-end flow
 
-Run ingestion from the `backend` directory:
+Apply migrations, then run ingestion from the `backend` directory:
 
 ```shell
 export BEE_THERE_USER_AGENT="BeeThere/0.1 (contact@example.com)"
+uv run alembic upgrade head
 uv run python src/ingest.py
 ```
 
-The command applies migrations, creates the Moj Novi Sad source when needed,
-fetches its current listings, and stores supported events. Standard event pages
+Ingestion requires an already migrated database. It creates the Moj Novi Sad
+source when needed, fetches its current listings, and stores supported events. Standard event pages
 are extracted deterministically. Aggregate cinema repertoire pages are counted
 as failed because they contain several events and cannot yet be split safely.
 
@@ -121,12 +122,12 @@ curl --get http://127.0.0.1:8000/api/events \
   --data-urlencode 'limit=20'
 ```
 
-Set `BEE_THERE_DATABASE_PATH` for both commands if you do not want to use the
+Set `BEE_THERE_DATABASE_PATH` for migrations, ingestion, and the API if you do not want to use the
 default `bee-there.sqlite3` file.
 
 ## Database migrations
 
-Apply all pending migrations before starting the application:
+Apply all pending migrations before starting the API or running ingestion:
 
 ```shell
 uv run alembic upgrade head

@@ -1,9 +1,14 @@
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
+from infrastructure.migrations import upgrade_database
 from ingest import run_moj_novi_sad_ingestion
 from main import create_application
+from modules.sources import PersistenceError
 
 FIXTURES = Path(__file__).parent / "fixtures" / "moj_novi_sad"
 
@@ -23,10 +28,26 @@ class FixturePageClient:
         return self._pages[url]
 
 
+def test_ingestion_requires_migrations_without_creating_schema(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "unmigrated.sqlite3"
+
+    with pytest.raises(PersistenceError):
+        run_moj_novi_sad_ingestion(database_path, FixturePageClient())
+
+    with closing(sqlite3.connect(database_path)) as connection:
+        tables = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    assert tables == []
+
+
 def test_ingests_moj_novi_sad_and_serves_the_event(
     tmp_path: Path,
 ) -> None:
     database_path = tmp_path / "database.sqlite3"
+    upgrade_database(database_path)
 
     result = run_moj_novi_sad_ingestion(database_path, FixturePageClient())
 
