@@ -1,4 +1,5 @@
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { isIPv4 } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,16 +10,10 @@ const extensionDirectory = path.resolve(
 const sourceDirectory = path.join(extensionDirectory, "src");
 const distributionDirectory = path.join(extensionDirectory, "dist");
 const configuredApiBaseUrl = process.env.BEE_THERE_API_BASE_URL;
-
 if (!configuredApiBaseUrl) {
   throw new Error("BEE_THERE_API_BASE_URL is required");
 }
-
-const apiUrl = new URL(configuredApiBaseUrl);
-if (apiUrl.protocol !== "http:" && apiUrl.protocol !== "https:") {
-  throw new Error("BEE_THERE_API_BASE_URL must use HTTP or HTTPS");
-}
-const apiBaseUrl = apiUrl.origin;
+const apiBaseUrl = parseApiOrigin(configuredApiBaseUrl);
 
 await rm(distributionDirectory, { force: true, recursive: true });
 await mkdir(distributionDirectory, { recursive: true });
@@ -32,3 +27,22 @@ await writeFile(
   path.join(distributionDirectory, "config.js"),
   `export const API_BASE_URL = ${JSON.stringify(apiBaseUrl)};\n`,
 );
+
+function parseApiOrigin(value) {
+  const url = new URL(value);
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("API URL must use HTTP or HTTPS");
+  }
+  if (url.protocol === "http:" && !isLoopback(url.hostname)) {
+    throw new Error("API URL must use HTTPS outside loopback development");
+  }
+  return url.origin;
+}
+
+function isLoopback(hostname) {
+  return (
+    hostname === "localhost" ||
+    hostname === "[::1]" ||
+    (isIPv4(hostname) && hostname.startsWith("127."))
+  );
+}
