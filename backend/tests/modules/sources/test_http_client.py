@@ -49,7 +49,9 @@ def test_page_client_follows_relative_and_public_redirects() -> None:
             return httpx2.Response(
                 307, headers={"location": "https://other.example/event"}
             )
-        return httpx2.Response(200, text="event")
+        return httpx2.Response(
+            200, text="event", headers={"content-type": "text/html"}
+        )
 
     client = HttpxPageClient(
         user_agent="BeeThere/test",
@@ -125,7 +127,11 @@ def test_page_client_retries_temporary_server_failures() -> None:
         nonlocal attempts
         attempts += 1
         status_code = 503 if attempts == 1 else 200
-        return httpx2.Response(status_code, text="page content")
+        return httpx2.Response(
+            status_code,
+            text="page content",
+            headers={"content-type": "text/html"},
+        )
 
     sleeps: list[float] = []
     client = HttpxPageClient(
@@ -150,7 +156,9 @@ def test_page_client_identifies_requests_and_throttles_them() -> None:
 
     def respond(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
-        return httpx2.Response(200, text="page content")
+        return httpx2.Response(
+            200, text="page content", headers={"content-type": "text/html"}
+        )
 
     times: Iterator[float] = iter((0.0, 0.25))
     sleeps: list[float] = []

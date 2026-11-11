@@ -1,7 +1,7 @@
 """HTTP fetching for source adapters."""
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 
 import httpx2
 
@@ -14,11 +14,30 @@ Clock = Callable[[], float]
 Sleeper = Callable[[float], None]
 
 
+class _LimitedStream(httpx2.SyncByteStream):
+    def __init__(self, stream: httpx2.SyncByteStream, limit: int) -> None:
+        self._stream = stream
+        self._limit = limit
+
+    def __iter__(self) -> Iterator[bytes]:
+        size = 0
+        for chunk in self._stream:
+            size += len(chunk)
+            if size > self._limit:
+                raise ValueError("Ingestion response exceeds size limit")
+            yield chunk
+
+    def close(self) -> None:
+        self._stream.close()
+
+
 class HttpxPageClient:
     """Fetch text pages with identification, timeouts, and throttling."""
 
     _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
     _MAX_ATTEMPTS = 3
+    _MAX_REDIRECTS = 5
+    _MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 
     def __init__(
         self,
@@ -45,6 +64,64 @@ class HttpxPageClient:
         """Fetch one text page and raise for an unsuccessful response."""
         target = httpx2.URL(url)
         validate_source_url(target)
+        self._wait_for_request_slot()
+
+        redirects = 0
+        attempt = 0
+        while True:
+            validate_source_url(target)
+            with self._client.stream(
+                "GET",
+                target,
+                headers={"User-Agent": self._user_agent},
+                follow_redirects=False,
+            ) as response:
+                if response.has_redirect_location:
+                    target = self._redirect_target(target, response, redirects)
+                    redirects += 1
+                    attempt = 0
+                    continue
+                if (
+                    response.status_code in self._RETRYABLE_STATUS_CODES
+                    and attempt < self._MAX_ATTEMPTS - 1
+                ):
+                    self._sleep(float(2**attempt))
+                    attempt += 1
+                    continue
+                response.raise_for_status()
+                return self._read_page(response)
+
+    def _read_page(self, response: httpx2.Response) -> str:
+        self._validate_response_headers(response)
+
+        assert isinstance(response.stream, httpx2.SyncByteStream)
+        response.stream = _LimitedStream(
+            response.stream, self._MAX_RESPONSE_BYTES
+        )
+
+        content = bytearray()
+        for chunk in response.iter_bytes():
+            if len(content) + len(chunk) > self._MAX_RESPONSE_BYTES:
+                raise ValueError("Ingestion response exceeds size limit")
+            content.extend(chunk)
+
+        return content.decode(response.encoding or "utf-8", "replace")
+
+    def _validate_response_headers(self, response: httpx2.Response) -> None:
+        media_type = (
+            response.headers.get("content-type", "")
+            .split(";", 1)[0]
+            .strip()
+            .lower()
+        )
+        if media_type not in {"text/html", "application/xhtml+xml"}:
+            raise ValueError("Unexpected ingestion content type")
+
+        length = response.headers.get("content-length")
+        if length is not None and int(length) > self._MAX_RESPONSE_BYTES:
+            raise ValueError("Ingestion response exceeds size limit")
+
+    def _wait_for_request_slot(self) -> None:
         now = self._clock()
         if self._last_request_at is not None:
             wait = self._minimum_interval - (now - self._last_request_at)
@@ -53,35 +130,17 @@ class HttpxPageClient:
                 now += wait
         self._last_request_at = now
 
-        redirects = 0
-        attempt = 0
-        while True:
-            validate_source_url(target)
-            response = self._client.get(
-                target,
-                headers={"User-Agent": self._user_agent},
-                follow_redirects=False,
+    def _redirect_target(
+        self, current: httpx2.URL, response: httpx2.Response, redirects: int
+    ) -> httpx2.URL:
+        if redirects >= self._MAX_REDIRECTS:
+            raise httpx2.TooManyRedirects(
+                "Exceeded ingestion redirect limit",
+                request=response.request,
             )
-            if response.has_redirect_location:
-                if redirects >= 5:
-                    raise httpx2.TooManyRedirects(
-                        "Exceeded ingestion redirect limit",
-                        request=response.request,
-                    )
-                target = target.join(response.headers["location"])
-                validate_source_url(target)
-                redirects += 1
-                attempt = 0
-                continue
-            if (
-                response.status_code in self._RETRYABLE_STATUS_CODES
-                and attempt < self._MAX_ATTEMPTS - 1
-            ):
-                self._sleep(float(2**attempt))
-                attempt += 1
-                continue
-            response.raise_for_status()
-            return response.text
+        target = current.join(response.headers["location"])
+        validate_source_url(target)
+        return target
 
     def close(self) -> None:
         """Close the underlying HTTP connection pool."""

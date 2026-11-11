@@ -115,6 +115,29 @@ def test_default_page_client_rechecks_dns_on_same_host_redirect() -> None:
     assert resolve.call_count == 2
 
 
+def test_transport_closes_pool_when_connection_fails() -> None:
+    def fail(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError("Connection failed", request=request)
+
+    transport = httpx2.MockTransport(fail)
+    with (
+        patch(
+            "socket.getaddrinfo",
+            return_value=[
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))
+            ],
+        ),
+        patch("httpx2.HTTPTransport", return_value=transport),
+        patch.object(transport, "close", wraps=transport.close) as close,
+        httpx2.Client(
+            transport=PublicNetworkTransport(), trust_env=False
+        ) as client,
+        pytest.raises(httpx2.ConnectError),
+    ):
+        client.get("https://events.example/event")
+    close.assert_called_once()
+
+
 class RecordingStream:
     """Fake the remote peer, but use the real HTTP and TLS setup code."""
 
@@ -124,7 +147,10 @@ class RecordingStream:
         self.closed = False
 
     def read(self, max_bytes: int, timeout: float | None = None) -> bytes:
-        return b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nevent"
+        return (
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n"
+            b"Content-Length: 5\r\n\r\nevent"
+        )
 
     def write(self, buffer: bytes, timeout: float | None = None) -> None:
         self.writes.append(bytes(buffer))

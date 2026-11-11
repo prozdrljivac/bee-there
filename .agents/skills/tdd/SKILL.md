@@ -37,9 +37,12 @@ Do not delete assertions, weaken expectations, copy observed output into expecte
 ## Refactor
 
 1. Refactor only while tests are green.
-2. Improve names, duplication, boundaries, and design without changing observable behavior.
-3. Keep transformations small and rerun relevant tests after each material change.
-4. End the cycle green before selecting the next scenario.
+2. Review changed code for readability and simplicity. Passing tests alone does not complete the cycle.
+3. Keep each function focused on one clear job and keep the main flow easy to follow. Separate workflow from detailed checks or processing with clearly named helpers when this improves readability.
+4. Improve names, duplication, boundaries, and control flow without changing observable behavior. Use named limits and reduce unnecessary nesting.
+5. Do not extract helpers merely to shorten functions. Avoid needless layers and abstractions. Prefer clear code over comments or documentation that repeat it.
+6. Keep transformations small and rerun relevant tests after each material change. Preserve resource cleanup and error behavior when moving code.
+7. End the cycle green before selecting the next scenario.
 
 Do not combine an intended behavior change with a refactor step.
 
@@ -81,8 +84,9 @@ Before reporting completion:
 
 1. Run the focused tests and the relevant broader suite.
 2. Check that each requested acceptance criterion has test coverage at the correct level.
-3. State the test commands run and their final results.
-4. Summarize the behavior implemented and any untested risk or blocked test.
+3. Review changed code for focused functions, clear names, simple control flow, and unnecessary abstractions. Refactor where needed while tests stay green.
+4. State the test commands run and their final results.
+5. Summarize the behavior implemented and any untested risk or blocked test.
 
 Never claim TDD if the failing test was not observed before its production change. If constraints prevented a true test-first cycle, state that clearly.
 
