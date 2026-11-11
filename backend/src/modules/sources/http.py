@@ -5,6 +5,11 @@ from collections.abc import Callable
 
 import httpx2
 
+from modules.sources.transport import (
+    PublicNetworkTransport,
+    validate_source_url,
+)
+
 Clock = Callable[[], float]
 Sleeper = Callable[[float], None]
 
@@ -28,7 +33,9 @@ class HttpxPageClient:
         self._minimum_interval = minimum_interval
         self._client = client or httpx2.Client(
             timeout=httpx2.Timeout(10.0, connect=5.0),
-            follow_redirects=True,
+            follow_redirects=False,
+            transport=PublicNetworkTransport(),
+            trust_env=False,
         )
         self._clock = clock
         self._sleep = sleep
@@ -36,6 +43,8 @@ class HttpxPageClient:
 
     def get_text(self, url: str) -> str:
         """Fetch one text page and raise for an unsuccessful response."""
+        target = httpx2.URL(url)
+        validate_source_url(target)
         now = self._clock()
         if self._last_request_at is not None:
             wait = self._minimum_interval - (now - self._last_request_at)
@@ -44,20 +53,35 @@ class HttpxPageClient:
                 now += wait
         self._last_request_at = now
 
-        for attempt in range(self._MAX_ATTEMPTS):
+        redirects = 0
+        attempt = 0
+        while True:
+            validate_source_url(target)
             response = self._client.get(
-                url,
+                target,
                 headers={"User-Agent": self._user_agent},
+                follow_redirects=False,
             )
+            if response.has_redirect_location:
+                if redirects >= 5:
+                    raise httpx2.TooManyRedirects(
+                        "Exceeded ingestion redirect limit",
+                        request=response.request,
+                    )
+                target = target.join(response.headers["location"])
+                validate_source_url(target)
+                redirects += 1
+                attempt = 0
+                continue
             if (
                 response.status_code in self._RETRYABLE_STATUS_CODES
                 and attempt < self._MAX_ATTEMPTS - 1
             ):
                 self._sleep(float(2**attempt))
+                attempt += 1
                 continue
             response.raise_for_status()
             return response.text
-        raise AssertionError("unreachable")
 
     def close(self) -> None:
         """Close the underlying HTTP connection pool."""
