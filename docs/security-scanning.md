@@ -10,7 +10,7 @@ The [Gitleaks v8.30.1](https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1
 pre-commit hook blocks detected secrets in **staged changes**. It uses the default
 rules and redacts findings. It is separate from Trivy and does not run in CI.
 
-Install the hooks as shown in the root [README](../README.md#git-hooks).
+Install the hooks as shown in the [development guide](development.md#git-hooks).
 Pre-commit builds the pinned Gitleaks source with Go (1.24.11 or newer).
 Pre-commit can download Go if it is absent; update an older installed Go first.
 The first run needs network access. A separate Gitleaks install is not needed
