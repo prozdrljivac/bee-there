@@ -1,5 +1,7 @@
 # BeeThere
 
+[![CI](https://github.com/prozdrljivac/bee-there/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/prozdrljivac/bee-there/actions/workflows/ci.yml)
+
 **Discover events in Novi Sad, right from your browser.**
 
 BeeThere brings local event listings into a Chrome extension. Open the toolbar
