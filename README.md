@@ -1,5 +1,10 @@
 # BeeThere
 
+## License
+
+BeeThere is licensed under the [MIT License](LICENSE).
+Copyright (c) 2026 Petar Ćevriz.
+
 ## Browser extension
 
 Build, test, and install the Chrome extension by following
