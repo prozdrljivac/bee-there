@@ -8,11 +8,15 @@ BeeThere brings local event listings into a Chrome extension. Open the toolbar
 popup, find something that interests you, and follow the link to the original
 listing for more details.
 
-![BeeThere Chrome popup showing event cards, dates, venues, and source links in light mode](docs/images/beethere-light.jpg)
+<p>
+  <img src="docs/images/beethere-light.png" alt="BeeThere in light mode with event cards and the Show filters button" width="360" />
+  <img src="docs/images/beethere-dark.png" alt="BeeThere in dark mode with title search, category and date filters shown" width="360" />
+</p>
 
 ## What you can do
 
 - **Browse local events** without leaving your current tab.
+- **Search event titles and filter by category or date.**
 - **See the essentials at a glance:** title, summary, category, date, time,
   and venue when available.
 - **Read times in Novi Sad local time**, regardless of your device's timezone.
@@ -33,7 +37,7 @@ an unpacked Chrome extension. Event coverage currently comes from
    then open BeeThere from the toolbar.
 
 Listings can be incomplete or change. Check the original source before making
-plans. Search, category/date filters, and saved events are not available yet.
+plans. Saved events are not available yet.
 
 ## Project docs
 
