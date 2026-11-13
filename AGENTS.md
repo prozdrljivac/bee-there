@@ -12,8 +12,9 @@
 
 ## Visual Change Review
 
-- After each feature, bug fix, refactor, or code implementation, read and follow `.agents/skills/change-review/SKILL.md` before reporting completion.
-- Run this review again after implementation changes made from user feedback. Do not run it after every edit or test cycle.
+- Read and follow `.agents/skills/change-review/SKILL.md` before reporting completion only when the current task changes source code or test code in this repository.
+- Skip automatic HTML reviews for discussion, research, commands, and documentation, instruction, or configuration-only changes. Pre-existing code changes from other tasks do not trigger a review.
+- Run this review again after user feedback only if that follow-up changes source code or test code. Do not run it after every edit or test cycle.
 - Create the HTML review only in a unique directory under `/tmp`. Include the overview, reasons, visual flow, every in-scope changed file, and test results. Discussion and feedback happen in chat, not in the HTML page.
 - Share the report link with the user. Keep reports out of the repository and leave all changes uncommitted until approved.
 

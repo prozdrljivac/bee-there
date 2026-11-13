@@ -1,6 +1,6 @@
 ---
 name: change-review
-description: Create a temporary, self-contained HTML review after every feature, bug fix, refactor, or code implementation, and after review-driven changes. Explain what changed, why, and how it works, with a visual overview and a complete file-by-file walkthrough. Also use when the user asks to understand or visually review a change.
+description: Create a temporary, self-contained HTML review only when the current task changes repository source code or test code, including code changes made from review feedback. Explain what changed, why, and how it works, with a visual overview and a complete file-by-file walkthrough. Also use when the user explicitly asks to visually review existing code changes.
 ---
 
 # Visual change review
@@ -9,10 +9,11 @@ Create a readable HTML page that helps the user understand the implementation. T
 
 ## When to run
 
-- Run after implementation, relevant tests, and the readability check, before the final response.
-- Run again after review feedback changes the implementation. Create a new report; do not overwrite the previous report.
-- Do not run after each edit or test cycle, or for a discussion that changes no files.
-- A skill is an instruction workflow, not an event hook. The project `AGENTS.md` requires this completion step. If invoked directly, use the scope supplied by the user.
+- Run automatically only when the current task changes source code or test code in this repository. Run after implementation, relevant tests, and the readability check, before the final response.
+- Run again after review feedback only if that follow-up changes source code or test code. Create a new report; do not overwrite the previous report.
+- Skip automatic reviews for discussion, research, commands, and documentation, instruction, or configuration-only changes. Do not run after each edit or test cycle.
+- Pre-existing code changes from other tasks do not trigger an automatic review. Compare this task's changes with its starting state, not just the current Git diff.
+- A skill is an instruction workflow, not an event hook. The project `AGENTS.md` requires this completion step only for code changes. If the user explicitly requests a review of existing code changes, use that scope. Do not generate a report when there are no code changes to review.
 
 ## Establish the review scope
 
