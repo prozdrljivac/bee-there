@@ -246,7 +246,8 @@ main {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 4px;
+  margin-bottom: 10px;
+  gap: 8px;
   flex: none;
 }
 
@@ -540,7 +541,7 @@ main {
   flex: none;
 }
 .local-time {
-  margin: 0 0 10px;
+  margin: 4px 0 0;
   color: var(--secondary);
   font-size: 11px;
   line-height: 18px;
@@ -851,6 +852,21 @@ button:focus-visible {
   font-size: 11px;
   line-height: 18px;
   color: var(--secondary);
+}
+#toggle-filters {
+  flex: none;
+  min-height: 36px;
+  padding: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--link);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+#toggle-filters:hover {
+  text-decoration: underline;
 }
 #clear-all {
   border: 0;

@@ -61,10 +61,20 @@
       <main>
         <section class="events-section" aria-label="Upcoming events">
           <div class="section-heading">
-            <h2>Upcoming events</h2>
+            <div>
+              <h2>Upcoming events</h2>
+              <p class="local-time">Novi Sad · Local dates and times</p>
+            </div>
+            <button
+              id="toggle-filters"
+              type="button"
+              aria-expanded="false"
+              aria-controls="discovery-filters"
+            >
+              Show filters
+            </button>
           </div>
-          <div class="discovery-controls">
-            <p class="local-time">Novi Sad · Local dates and times</p>
+          <div id="discovery-filters" class="discovery-controls" hidden>
             <div class="search-field">
               <img src="assets/discovery/search.svg" alt="" />
               <label for="title-query" class="visually-hidden"

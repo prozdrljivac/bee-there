@@ -368,6 +368,7 @@ for index in range(44):
   assert.equal(seed.status, 0, seed.stderr || seed.stdout);
   const { popup, triggerPage } = await openPopup();
   try {
+    await popup.click("#toggle-filters");
     await popup.waitForSelector("#title-query");
     await popup.type("#title-query", "jAzZ");
     await popup.click("#category-trigger");

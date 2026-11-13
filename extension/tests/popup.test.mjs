@@ -45,7 +45,7 @@ async function waitForRequest() {
   return undefined;
 }
 
-async function openPopup() {
+async function openPopup({ expandFilters = true } = {}) {
   const extension = await waitForExtension();
   assert.ok(extension, "BeeThere extension was not loaded");
 
@@ -60,6 +60,7 @@ async function openPopup() {
   const popup = await popupTarget.asPage();
   assert.ok(popup, "The action did not open a popup page");
   await popup.waitForSelector("h1");
+  if (expandFilters) await popup.click("#toggle-filters");
   return { popup, triggerPage: page };
 }
 
@@ -137,6 +138,249 @@ after(async () => {
   await new Promise((resolve, reject) => {
     server?.close((error) => (error ? reject(error) : resolve()));
   });
+});
+
+test("a plain text button shows and hides filters without loading results", async () => {
+  const { popup } = await openPopup({ expandFilters: false });
+  await popup.waitForFunction(
+    () =>
+      document.querySelector("#event-list").getAttribute("aria-busy") ===
+      "false",
+  );
+  const requestCount = requests.length;
+  const collapsedHeight = await popup.$eval("#results", (el) => el.clientHeight);
+  assert.equal(
+    await popup.$eval("#discovery-filters", (el) => el.hidden),
+    true,
+  );
+  assert.equal(
+    await popup.$eval("#toggle-filters", (el) => el.textContent.trim()),
+    "Show filters",
+  );
+  assert.equal(
+    await popup.$eval("#toggle-filters", (el) => el.getAttribute("aria-expanded")),
+    "false",
+  );
+  assert.equal(
+    await popup.$eval("#toggle-filters", (el) => el.getAttribute("aria-controls")),
+    "discovery-filters",
+  );
+  await popup.focus("#toggle-filters");
+  await popup.keyboard.press("Enter");
+  assert.equal(
+    await popup.$eval("#discovery-filters", (el) => el.hidden),
+    false,
+  );
+  assert.equal(
+    await popup.$eval("#toggle-filters", (el) => el.textContent.trim()),
+    "Hide filters",
+  );
+  assert.equal(
+    await popup.$eval("#toggle-filters", (el) => el.getAttribute("aria-expanded")),
+    "true",
+  );
+  const expandedHeight = await popup.$eval("#results", (el) => el.clientHeight);
+  assert.ok(collapsedHeight > expandedHeight);
+  assert.equal(
+    await popup.evaluate(() => document.activeElement.id),
+    "toggle-filters",
+  );
+  await popup.keyboard.press("Space");
+  assert.equal(
+    await popup.$eval("#discovery-filters", (el) => el.hidden),
+    true,
+  );
+  await popup.keyboard.press("Tab");
+  assert.equal(
+    await popup.evaluate(() =>
+      document.activeElement.closest("#discovery-filters"),
+    ),
+    null,
+  );
+  assert.equal(requests.length, requestCount);
+  assert.deepEqual(
+    await popup.$eval("#toggle-filters", (el) => ({
+      icons: el.querySelectorAll("img, svg").length,
+      border: getComputedStyle(el).borderTopWidth,
+    })),
+    { icons: 0, border: "0px" },
+  );
+});
+
+test("hiding filters closes their menus and keeps the applied choices", async () => {
+  const { popup } = await openPopup();
+  await popup.type("#title-query", "jazz");
+  await popup.click("#category-trigger");
+  await popup.click("#category-music");
+  await popup.keyboard.press("Escape");
+  await popup.click("#date-trigger");
+  await popup.click('[data-date="tomorrow"]');
+  await popup.waitForFunction(
+    () =>
+      document.querySelector("#event-list").getAttribute("aria-busy") ===
+      "false",
+  );
+  const requestCount = requests.length;
+  const choices = await popup.evaluate(() =>
+    localStorage.getItem("bee-there-discovery"),
+  );
+  for (const menu of ["category", "date", "custom"]) {
+    await popup.click(menu === "category" ? "#category-trigger" : "#date-trigger");
+    if (menu === "custom") await popup.click('[data-date="custom"]');
+    await popup.focus("#toggle-filters");
+    await popup.keyboard.press("Enter");
+    assert.equal(
+      await popup.$eval(`#${menu}-menu`, (el) => el.hidden),
+      true,
+      `${menu} menu stays hidden`,
+    );
+    assert.equal(
+    await popup.evaluate(() => document.activeElement.id),
+    "toggle-filters",
+  );
+    assert.equal(
+      await popup.$eval("#toggle-filters", (el) => el.textContent.trim()),
+      "Show filters",
+    );
+    assert.equal(
+      await popup.$eval("#category-trigger", (el) => el.getAttribute("aria-expanded")),
+      "false",
+    );
+    assert.equal(
+      await popup.$eval("#date-trigger", (el) => el.getAttribute("aria-expanded")),
+      "false",
+    );
+    await popup.click("#toggle-filters");
+  }
+  assert.equal(
+    await popup.$eval("#title-query", (el) => el.value),
+    "jazz",
+  );
+  assert.equal(
+    await popup.$eval("#category-music", (el) => el.checked),
+    true,
+  );
+  assert.equal(
+    await popup.$eval("#date-trigger span", (el) => el.textContent),
+    "Tomorrow",
+  );
+  assert.equal(
+    await popup.evaluate(() => localStorage.getItem("bee-there-discovery")),
+    choices,
+  );
+  assert.equal(requests.length, requestCount);
+});
+
+test("restored filters start hidden and Clear all keeps focus on a visible control", async () => {
+  const { popup } = await openPopup({ expandFilters: false });
+  await popup.evaluate(() =>
+    localStorage.setItem("bee-there-discovery", JSON.stringify({
+      query: "jazz",
+      categories: ["music"],
+      date: { kind: "tomorrow" },
+    })),
+  );
+  await popup.reload();
+  await popup.waitForFunction(
+    () =>
+      document.querySelector("#event-list").getAttribute("aria-busy") ===
+      "false",
+  );
+  assert.equal(
+    await popup.$eval("#discovery-filters", (el) => el.hidden),
+    true,
+  );
+  assert.equal(
+    await popup.$eval("#toggle-filters", (el) => el.textContent.trim()),
+    "Show filters",
+  );
+  assert.equal(requests.at(-1).searchParams.get("q"), "jazz");
+  assert.deepEqual(requests.at(-1).searchParams.getAll("category"), ["music"]);
+  assert.equal(requests.at(-1).searchParams.get("to"), "2025-04-01T22:00:00.000Z");
+  await popup.click("#clear-all");
+  await popup.waitForFunction(
+    () =>
+      document.querySelector("#event-list").getAttribute("aria-busy") ===
+      "false",
+  );
+  assert.equal(
+    await popup.$eval("#discovery-filters", (el) => el.hidden),
+    true,
+  );
+  assert.equal(
+    await popup.evaluate(() => document.activeElement.id),
+    "toggle-filters",
+  );
+  assert.equal(requests.at(-1).searchParams.has("q"), false);
+  assert.equal(requests.at(-1).searchParams.has("category"), false);
+  assert.equal(requests.at(-1).searchParams.has("to"), false);
+  await popup.click("#toggle-filters");
+  assert.equal(
+    await popup.$eval("#title-query", (el) => el.value),
+    "",
+  );
+  assert.equal(
+    await popup.$eval("#category-music", (el) => el.checked),
+    false,
+  );
+  assert.equal(
+    await popup.$eval("#date-trigger span", (el) => el.textContent),
+    "Date · Any",
+  );
+});
+
+test("the filter toggle fits narrow and standard popups in both themes", async () => {
+  responseEvents = [
+    {
+      id: "concert",
+      title: "City Jazz Night",
+      summary: "Live music with local artists.",
+      category: "music",
+      starts_at: "2025-04-01T18:00:00Z",
+      ends_at: null,
+      location_name: "Community Hall",
+      source_name: "Local Events",
+      source_url: "https://example.org/concert",
+    },
+  ];
+  const action = await openPopup({ expandFilters: false });
+  const url = action.popup.url();
+  await action.popup.close();
+  const popup = await browser.newPage();
+  for (const width of [420, 320]) {
+    await popup.setViewport({ width, height: 600 });
+    await popup.goto(url);
+    await popup.waitForSelector(".event-card");
+    for (const theme of ["light", "dark"]) {
+      await popup.click(`label[for="theme-${theme}"]`);
+      for (const state of ["collapsed", "expanded"]) {
+        if (state === "expanded") await popup.click("#toggle-filters");
+        const layout = await popup.evaluate(() => {
+          const shell = document.querySelector(".popup");
+          const heading = document.querySelector(".section-heading")
+            .getBoundingClientRect();
+          const toggle = document.querySelector("#toggle-filters")
+            .getBoundingClientRect();
+          const title = document.querySelector(".section-heading h2")
+            .getBoundingClientRect();
+          return {
+            overflow: shell.scrollWidth > shell.clientWidth,
+            overlap: title.right > toggle.left,
+            bounded: toggle.right <= heading.right,
+          };
+        });
+        assert.deepEqual(layout, {
+          overflow: false,
+          overlap: false,
+          bounded: true,
+        });
+        await popup.screenshot({
+          path: `/tmp/beethere-filters-${width}-${theme}-${state}.png`,
+        });
+      }
+      await popup.click("#toggle-filters");
+    }
+  }
 });
 
 test("the toolbar action opens the BeeThere visual shell", async () => {
@@ -1061,6 +1305,7 @@ test("narrow dark controls and bounded menus keep all provided icons local and s
   const popup = await browser.newPage();
   await popup.setViewport({ width: 320, height: 600 });
   await popup.goto(popupUrl);
+  await popup.click("#toggle-filters");
   await popup.click('label[for="theme-dark"]');
   await popup.click("#category-trigger");
   assert.equal(
@@ -1182,6 +1427,7 @@ test("light discovery renders local design assets in their intended slots", asyn
   const popup = await browser.newPage();
   await popup.setViewport({ width: 420, height: 600 });
   await popup.goto(url);
+  await popup.click("#toggle-filters");
   await popup.click('label[for="theme-light"]');
   await popup.waitForSelector(".event-card:nth-child(2)");
   await popup.screenshot({ path: "/tmp/beethere-discovery-default-light.png" });

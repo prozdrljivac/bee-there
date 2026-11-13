@@ -233,7 +233,7 @@ function clearAllChoices() {
   selectedCategories.clear();
   updateCategories();
   datePicker.setChoice({ kind: "any" }, false);
-  queryInput.focus();
+  (discoveryFilters.hidden ? filtersToggle : queryInput).focus();
   void requestEvents();
 }
 
@@ -528,6 +528,17 @@ const datePicker = createDatePicker(
   () => void requestEvents(),
   () => closeCategories(),
 );
+const filtersToggle = document.querySelector("#toggle-filters");
+const discoveryFilters = document.querySelector("#discovery-filters");
+filtersToggle.addEventListener("click", () => {
+  closeCategories();
+  datePicker.close();
+  discoveryFilters.hidden = !discoveryFilters.hidden;
+  filtersToggle.setAttribute("aria-expanded", String(!discoveryFilters.hidden));
+  filtersToggle.textContent = discoveryFilters.hidden
+    ? "Show filters"
+    : "Hide filters";
+});
 const queryInput = document.querySelector("#title-query");
 const clearQuery = document.querySelector("#clear-query");
 queryInput.addEventListener("input", () => {
