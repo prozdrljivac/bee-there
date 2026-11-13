@@ -66,8 +66,9 @@ BEE_THERE_API_BASE_URL=https://api.example.com npm run release
 ```
 
 The command performs a clean build and writes
-`extension/release/bee-there-chrome-0.1.0.zip`. The ZIP contains only runtime
-files, with `manifest.json` at its root. The manifest omits
+`extension/release/bee-there-chrome-<version>.zip`, using the version from
+`src/manifest.json`. The ZIP contains only runtime files, with `manifest.json`
+at its root. The manifest omits
 `content_security_policy`, so Chrome applies the default Manifest V3 policy.
 
 Before sharing or uploading a release, extract the ZIP and complete this

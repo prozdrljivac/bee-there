@@ -14,7 +14,7 @@ const distributionDirectory = path.join(extensionDirectory, "dist");
 const releaseDirectory = path.join(extensionDirectory, "release");
 const archivePath = path.join(
   releaseDirectory,
-  "bee-there-chrome-0.1.0.zip",
+  "bee-there-chrome-0.2.0.zip",
 );
 
 async function removeArtifacts() {

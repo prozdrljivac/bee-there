@@ -12,7 +12,7 @@ const extensionDirectory = path.resolve(
 );
 const distributionDirectory = path.join(extensionDirectory, "dist");
 const releaseDirectory = path.join(extensionDirectory, "release");
-const archivePath = path.join(releaseDirectory, "bee-there-chrome-0.1.0.zip");
+const archivePath = path.join(releaseDirectory, "bee-there-chrome-0.2.0.zip");
 
 before(async () => {
   await rm(distributionDirectory, { force: true, recursive: true });
@@ -65,7 +65,7 @@ test("the release command creates a minimal Chrome upload archive", async () => 
   assert.deepEqual(JSON.parse(strFromU8(archive["manifest.json"])), {
     manifest_version: 3,
     name: "BeeThere",
-    version: "0.1.0",
+    version: "0.2.0",
     icons: {
       16: "assets/logo/beethere-icon-16.png",
       32: "assets/logo/beethere-icon-32.png",

@@ -175,7 +175,7 @@ for title, starts_at, path in (
   assert.equal(release.status, 0, release.stderr || release.stdout);
 
   const archive = unzipSync(
-    await readFile(path.join(releaseDirectory, "bee-there-chrome-0.1.0.zip")),
+    await readFile(path.join(releaseDirectory, "bee-there-chrome-0.2.0.zip")),
   );
   installedExtensionDirectory = path.join(
     temporaryDirectory,
