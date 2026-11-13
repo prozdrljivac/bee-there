@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { unzipSync } from "fflate";
-import puppeteer from "puppeteer";
+import puppeteer, { TargetCloseError } from "puppeteer";
 
 const extensionDirectory = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -74,6 +74,11 @@ async function waitForExtension() {
 async function openPopup() {
   const extension = await waitForExtension();
   assert.ok(extension, "BeeThere extension was not loaded");
+  await browserSession.send("Target.setAutoAttach", {
+    autoAttach: true,
+    flatten: true,
+    waitForDebuggerOnStart: true,
+  });
   const popupTargetPromise = browser.waitForTarget(
     (target) =>
       target.type() === "page" && target.url().endsWith("/popup.html"),
@@ -225,11 +230,6 @@ for title, starts_at, path in (
       }
     });
   });
-  await browserSession.send("Target.setAutoAttach", {
-    autoAttach: true,
-    flatten: true,
-    waitForDebuggerOnStart: true,
-  });
 });
 
 after(async () => {
@@ -245,28 +245,97 @@ after(async () => {
   await rm(releaseDirectory, { force: true, recursive: true });
 });
 
-test("the clean release bundle completes the real backend journey", async () => {
-  const { popup, triggerPage } = await openPopup();
-  await popup.waitForSelector(".event-card:nth-child(2)");
-  const titles = await popup.$$eval(".event-title", (elements) =>
-    elements.map((element) => element.textContent),
-  );
-  assert.deepEqual(titles, ["Boundary Event", "Later Event"]);
+function closeBeforeMouseReply(t, popup) {
+  const mouseUp = popup.mouse.up.bind(popup.mouse);
+  t.mock.method(popup.mouse, "up", async (...args) => {
+    const popupClosed = new Promise((resolve) => popup.once("close", resolve));
+    await mouseUp(...args);
+    await popupClosed;
+    // Model Chrome closing the popup before the mouse-release reply arrives.
+    throw new TargetCloseError(
+      "Protocol error (Input.dispatchMouseEvent): Target closed",
+    );
+  });
+}
 
-  const sourceUrl = `${apiBaseUrl.replace("http:", "https:")}/events/boundary`;
+async function openSourceTab(popup, sourceUrl) {
   await browserSession.send("Target.setAutoAttach", {
     autoAttach: false,
     flatten: true,
     waitForDebuggerOnStart: false,
   });
   const existingTargets = new Set(browser.targets());
+  const controller = new AbortController();
   const sourceTargetPromise = browser.waitForTarget(
-    (target) => target.type() === "page" && !existingTargets.has(target),
+    (target) =>
+      target.type() === "page" &&
+      !existingTargets.has(target) &&
+      target.url() === sourceUrl,
+    { signal: controller.signal },
   );
-  await popup.click(".event-card:first-child .event-source");
-  const sourceTarget = await sourceTargetPromise;
-  assert.notEqual(sourceTarget, popup.target());
-  assert.equal(sourceTarget.url(), sourceUrl);
+  try {
+    const [sourceTarget] = await Promise.all([
+      sourceTargetPromise,
+      popup.click(".event-card:first-child .event-source").catch((error) => {
+        // Opening a focused tab can close the action popup before CDP replies.
+        if (!(error instanceof TargetCloseError) || !popup.isClosed()) {
+          throw error;
+        }
+      }),
+    ]);
+    assert.notEqual(sourceTarget, popup.target());
+    assert.equal(sourceTarget.url(), sourceUrl);
+    const sourcePage = await sourceTarget.asPage();
+    assert.ok(sourcePage, "The source link did not open a page");
+    await sourcePage.close();
+  } finally {
+    controller.abort();
+    await Promise.allSettled([sourceTargetPromise]);
+  }
+}
 
-  await triggerPage.close();
-});
+for (const closeDuringClick of [false, true]) {
+  const scenario = closeDuringClick ? "popup closes during click" : "normal click";
+  test(
+    `the clean release bundle completes the real backend journey: ${scenario}`,
+    async (t) => {
+      const { popup, triggerPage } = await openPopup();
+      try {
+        await popup.waitForSelector(".event-card:nth-child(2)");
+        const titles = await popup.$$eval(".event-title", (elements) =>
+          elements.map((element) => element.textContent),
+        );
+        assert.deepEqual(titles, ["Boundary Event", "Later Event"]);
+
+        if (closeDuringClick) {
+          closeBeforeMouseReply(t, popup);
+        }
+        const sourceUrl = `${apiBaseUrl.replace("http:", "https:")}/events/boundary`;
+        await openSourceTab(popup, sourceUrl);
+      } finally {
+        await triggerPage.close();
+      }
+    },
+  );
+}
+
+for (const error of [
+  new Error("Unexpected input failure"),
+  new TargetCloseError("The popup is still open"),
+]) {
+  test(`source navigation rejects input errors: ${error.message}`, async (t) => {
+    const { popup, triggerPage } = await openPopup();
+    try {
+      t.mock.method(popup, "click", async () => {
+        throw error;
+      });
+      const sourceUrl = `${apiBaseUrl.replace("http:", "https:")}/events/boundary`;
+      await assert.rejects(openSourceTab(popup, sourceUrl), (actual) =>
+        actual === error,
+      );
+    } finally {
+      await popup.close();
+      await triggerPage.close();
+    }
+  });
+}
