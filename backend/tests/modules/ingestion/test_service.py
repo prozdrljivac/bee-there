@@ -1,9 +1,10 @@
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
 
-from modules.events import Event, EventCategory, EventDraft
+from modules.events import Event, EventCategory, EventDraft, TimeRange
 from modules.ingestion import ExtractedEvent, ExtractionError, IngestionService
 from modules.sources import CandidateListing, Source
 
@@ -66,7 +67,15 @@ class RecordingEventRepository:
             updated_at=now,
         )
 
-    def list_upcoming(self, *, from_time: datetime, limit: int) -> list[Event]:
+    def list_upcoming(
+        self,
+        *,
+        time_range: TimeRange,
+        limit: int = 20,
+        categories: Sequence[EventCategory] = (),
+        q: str | None = None,
+        offset: int = 0,
+    ) -> list[Event]:
         raise NotImplementedError
 
 
@@ -103,12 +112,12 @@ def test_run_continues_after_an_invalid_extraction() -> None:
 def test_run_counts_an_unsupported_listing_as_failed() -> None:
     source = Source(
         id=UUID("019a57c0-8800-7000-8000-000000000010"),
-        name="Moj Novi Sad",
-        base_url="https://www.mojnovisad.com/",
+        name="City Events",
+        base_url="https://example.com/",
         enabled=True,
     )
     candidate = CandidateListing(
-        source_url="https://www.mojnovisad.com/navigator/cinema/",
+        source_url="https://example.com/events/cinema/",
         content="unsupported",
     )
     service = IngestionService(

@@ -1,13 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { spawn, spawnSync } from "node:child_process";
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -181,9 +175,7 @@ for title, starts_at, path in (
   assert.equal(release.status, 0, release.stderr || release.stdout);
 
   const archive = unzipSync(
-    await readFile(
-      path.join(releaseDirectory, "bee-there-chrome-0.1.0.zip"),
-    ),
+    await readFile(path.join(releaseDirectory, "bee-there-chrome-0.1.0.zip")),
   );
   installedExtensionDirectory = path.join(
     temporaryDirectory,
@@ -295,28 +287,27 @@ async function openSourceTab(popup, sourceUrl) {
 }
 
 for (const closeDuringClick of [false, true]) {
-  const scenario = closeDuringClick ? "popup closes during click" : "normal click";
-  test(
-    `the clean release bundle completes the real backend journey: ${scenario}`,
-    async (t) => {
-      const { popup, triggerPage } = await openPopup();
-      try {
-        await popup.waitForSelector(".event-card:nth-child(2)");
-        const titles = await popup.$$eval(".event-title", (elements) =>
-          elements.map((element) => element.textContent),
-        );
-        assert.deepEqual(titles, ["Boundary Event", "Later Event"]);
+  const scenario = closeDuringClick
+    ? "popup closes during click"
+    : "normal click";
+  test(`the clean release bundle completes the real backend journey: ${scenario}`, async (t) => {
+    const { popup, triggerPage } = await openPopup();
+    try {
+      await popup.waitForSelector(".event-card:nth-child(2)");
+      const titles = await popup.$$eval(".event-title", (elements) =>
+        elements.map((element) => element.textContent),
+      );
+      assert.deepEqual(titles, ["Boundary Event", "Later Event"]);
 
-        if (closeDuringClick) {
-          closeBeforeMouseReply(t, popup);
-        }
-        const sourceUrl = `${apiBaseUrl.replace("http:", "https:")}/events/boundary`;
-        await openSourceTab(popup, sourceUrl);
-      } finally {
-        await triggerPage.close();
+      if (closeDuringClick) {
+        closeBeforeMouseReply(t, popup);
       }
-    },
-  );
+      const sourceUrl = `${apiBaseUrl.replace("http:", "https:")}/events/boundary`;
+      await openSourceTab(popup, sourceUrl);
+    } finally {
+      await triggerPage.close();
+    }
+  });
 }
 
 for (const error of [
@@ -330,8 +321,9 @@ for (const error of [
         throw error;
       });
       const sourceUrl = `${apiBaseUrl.replace("http:", "https:")}/events/boundary`;
-      await assert.rejects(openSourceTab(popup, sourceUrl), (actual) =>
-        actual === error,
+      await assert.rejects(
+        openSourceTab(popup, sourceUrl),
+        (actual) => actual === error,
       );
     } finally {
       await popup.close();
@@ -339,3 +331,82 @@ for (const error of [
     }
   });
 }
+
+test("discovery uses real server overlap, title search, category OR and all result pages", async () => {
+  const seedScript = `
+from datetime import UTC, datetime
+import os
+from modules.events.contracts import EventDraft
+from modules.events.domain import EventCategory
+from modules.events.sqlite import SQLiteEventRepository
+from modules.sources.contracts import SourceDraft
+from modules.sources.sqlite import SQLiteSourceRepository
+path = os.environ["BEE_THERE_DATABASE_PATH"]
+source = SQLiteSourceRepository(path).create(SourceDraft(name="Discovery fixture", base_url="https://discovery.example"))
+repository = SQLiteEventRepository(path)
+for index in range(44):
+    repository.upsert(EventDraft(
+        title=f"Jazz overlap {index}" if index < 43 else "Summary-only match",
+        summary="jazz", category=EventCategory.MUSIC if index < 41 else EventCategory.THEATRE,
+        starts_at=datetime(2025, 3, 30, 12, tzinfo=UTC), ends_at=datetime(2025, 4, 3, 12, tzinfo=UTC),
+        location_name="Test Venue", source_id=source.id,
+        source_url=f"https://discovery.example/events/{index}", external_id=str(index),
+    ))
+`;
+  const seed = spawnSync("uv", ["run", "python", "-c", seedScript], {
+    cwd: backendDirectory,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      BEE_THERE_DATABASE_PATH: path.join(
+        temporaryDirectory,
+        "bee-there.sqlite3",
+      ),
+      PYTHONPATH: path.join(backendDirectory, "src"),
+    },
+  });
+  assert.equal(seed.status, 0, seed.stderr || seed.stdout);
+  const { popup, triggerPage } = await openPopup();
+  try {
+    await popup.waitForSelector("#title-query");
+    await popup.type("#title-query", "jAzZ");
+    await popup.click("#category-trigger");
+    await popup.click("#category-music");
+    await popup.click("#category-theatre");
+    await popup.keyboard.press("Escape");
+    await popup.click("#date-trigger");
+    await popup.click('[data-date="custom"]');
+    await popup.type("#custom-start", "02 Apr 2025");
+    await popup.keyboard.press("Escape");
+    await popup.waitForFunction(() =>
+      document.querySelector("#status").textContent.startsWith("20+ events"),
+    );
+    for (const count of [40, 43]) {
+      await popup.$eval("#results", (el) => {
+        el.scrollTop = el.scrollHeight;
+      });
+      await popup.waitForFunction(
+        (count) => document.querySelectorAll(".event-card").length === count,
+        {},
+        count,
+      );
+    }
+    const titles = await popup.$$eval(".event-title", (items) =>
+      items.map((item) => item.textContent),
+    );
+    assert.equal(titles.length, 43);
+    assert.ok(titles.every((title) => title.startsWith("Jazz overlap")));
+    assert.equal(new Set(titles).size, 43);
+    assert.deepEqual(
+      (
+        await popup.$$eval(".event-category", (items) => [
+          ...new Set(items.map((item) => item.textContent)),
+        ])
+      ).sort(),
+      ["MUSIC", "THEATRE"],
+    );
+  } finally {
+    await popup.close();
+    await triggerPage.close();
+  }
+});

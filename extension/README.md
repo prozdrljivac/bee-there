@@ -28,6 +28,22 @@ Use only the origin, without an API path. The build writes this value into the
 extension and grants host permission only to that origin. The unpacked
 extension is written to `extension/dist`.
 
+## Find events
+
+Search matches event titles only. Category choices use OR; title, categories,
+and dates combine with AND. The server filters and sorts each 20-event page.
+Scroll the results to load all matches. A failed later page can be retried
+without losing earlier matches.
+
+Dates use Europe/Belgrade, not the browser timezone. Custom ranges include
+both dates and overlapping events. Use `DD MMM YYYY` in date fields. Calendar
+arrow keys move by day or week; Page Up and Page Down change months. Past dates
+cannot be selected. Invalid or incomplete dates keep the last applied choice.
+
+The extension saves the query, categories, and applied date locally. Relative
+dates recalculate when opened. Partly expired custom ranges start today; wholly
+expired dates reset with a notice. Clear all does not change the theme.
+
 ## Test
 
 ```shell
@@ -37,7 +53,9 @@ npm test
 The tests build the extension, load it in Puppeteer's bundled Chromium, open
 the real toolbar action popup, and check the popup shell. The release smoke
 test starts the real backend, extracts the generated ZIP, installs that clean
-bundle, and completes the upcoming-events journey.
+bundle, and completes the upcoming-events journey. Discovery tests also check
+real-server title matching, category OR, overlapping dates, and all result pages.
+Pure date tests cover Belgrade day boundaries across both DST changes.
 
 ## Create a Chrome release
 

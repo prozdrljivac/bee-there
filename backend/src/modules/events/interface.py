@@ -1,10 +1,10 @@
 """Public application interface for the Events module."""
 
-from datetime import datetime
+from collections.abc import Sequence
 from typing import Protocol
 
-from modules.events.contracts import EventDraft
-from modules.events.domain import Event
+from modules.events.contracts import EventDraft, TimeRange
+from modules.events.domain import Event, EventCategory
 
 
 class EventRepository(Protocol):
@@ -14,6 +14,14 @@ class EventRepository(Protocol):
         """Insert or update an event from one source listing."""
         ...
 
-    def list_upcoming(self, *, from_time: datetime, limit: int) -> list[Event]:
-        """List events that start on or after the supplied time."""
+    def list_upcoming(
+        self,
+        *,
+        time_range: TimeRange,
+        limit: int = 20,
+        categories: Sequence[EventCategory] = (),
+        q: str | None = None,
+        offset: int = 0,
+    ) -> list[Event]:
+        """List overlapping events with optional filters and stable pagination."""
         ...

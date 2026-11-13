@@ -1,5 +1,6 @@
 """Public input contracts for the Events module."""
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Self
 from uuid import UUID
@@ -14,6 +15,23 @@ from pydantic import (
 )
 
 from modules.events.domain import EventCategory
+
+
+@dataclass(frozen=True, slots=True)
+class TimeRange:
+    """Search window with an inclusive start and an optional exclusive end."""
+
+    from_time: datetime
+    to_time: datetime | None = None
+
+    def __post_init__(self) -> None:
+        if self.from_time.utcoffset() is None:
+            raise ValueError("from_time must include a timezone")
+        if self.to_time is not None:
+            if self.to_time.utcoffset() is None:
+                raise ValueError("to_time must include a timezone")
+            if self.to_time <= self.from_time:
+                raise ValueError("to_time must be after from_time")
 
 
 def _to_utc(value: datetime) -> datetime:

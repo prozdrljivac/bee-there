@@ -10,6 +10,7 @@ from modules.events import (
     EventDraft,
     PersistenceConflictError,
     PersistenceError,
+    TimeRange,
 )
 from modules.events.sqlite import SQLiteEventRepository
 from modules.sources import SourceDraft
@@ -192,7 +193,7 @@ def test_upsert_scopes_external_ids_to_their_source(tmp_path: Path) -> None:
             )
         )
 
-    events = repository.list_upcoming(from_time=now, limit=10)
+    events = repository.list_upcoming(time_range=TimeRange(now), limit=10)
 
     assert {event.title for event in events} == {"First", "Second"}
 
@@ -219,7 +220,9 @@ def test_upsert_keeps_a_known_external_id_when_a_listing_omits_it(
 
     updated = repository.upsert(draft.model_copy(update={"external_id": None}))
 
-    events = repository.list_upcoming(from_time=first_seen, limit=10)
+    events = repository.list_upcoming(
+        time_range=TimeRange(first_seen), limit=10
+    )
     assert updated.id == created.id
     assert updated.external_id == "jazz-2026"
     assert updated.updated_at == seen_again
@@ -250,7 +253,7 @@ def test_upsert_adds_an_external_id_to_an_existing_url_match(
         draft.model_copy(update={"external_id": "jazz-2026"})
     )
 
-    events = repository.list_upcoming(from_time=now, limit=10)
+    events = repository.list_upcoming(time_range=TimeRange(now), limit=10)
     assert updated.id == created.id
     assert updated.external_id == "jazz-2026"
     assert events == [updated]
@@ -263,7 +266,7 @@ def test_list_upcoming_raises_a_persistence_error_when_storage_fails(
 
     with pytest.raises(PersistenceError):
         repository.list_upcoming(
-            from_time=datetime(2026, 10, 23, 18, 0, tzinfo=UTC),
+            time_range=TimeRange(datetime(2026, 10, 23, 18, 0, tzinfo=UTC)),
             limit=10,
         )
 
@@ -292,7 +295,7 @@ def test_list_upcoming_returns_future_events_in_start_order(
             )
         )
 
-    events = repository.list_upcoming(from_time=now, limit=10)
+    events = repository.list_upcoming(time_range=TimeRange(now), limit=10)
 
     assert [event.title for event in events] == ["Sooner", "Later"]
 
@@ -315,10 +318,15 @@ def test_list_upcoming_includes_an_event_at_the_boundary(
         )
     )
 
-    assert repository.list_upcoming(from_time=boundary, limit=10) == [created]
+    assert repository.list_upcoming(
+        time_range=TimeRange(boundary), limit=10
+    ) == [created]
 
 
-def test_list_upcoming_applies_the_requested_limit(tmp_path: Path) -> None:
+@pytest.mark.parametrize("limit", (1, 21, 101))
+def test_list_upcoming_applies_the_requested_limit(
+    tmp_path: Path, limit: int
+) -> None:
     now = datetime(2026, 10, 23, 18, 0, tzinfo=UTC)
     repository = SQLiteEventRepository(
         tmp_path / "events.sqlite3", clock=lambda: now
@@ -336,9 +344,12 @@ def test_list_upcoming_applies_the_requested_limit(tmp_path: Path) -> None:
             )
         )
 
-    events = repository.list_upcoming(from_time=now, limit=1)
+    events = repository.list_upcoming(time_range=TimeRange(now), limit=limit)
 
-    assert [event.title for event in events] == ["Event on day 24"]
+    assert [event.title for event in events] == [
+        "Event on day 24",
+        "Event on day 25",
+    ][:limit]
 
 
 def test_events_remain_available_after_the_database_is_reopened(
@@ -360,16 +371,18 @@ def test_events_remain_available_after_the_database_is_reopened(
 
     reopened_repository = SQLiteEventRepository(database_path)
 
-    assert reopened_repository.list_upcoming(from_time=now, limit=10) == [
-        created
-    ]
+    assert reopened_repository.list_upcoming(
+        time_range=TimeRange(now), limit=10
+    ) == [created]
 
 
 def test_list_upcoming_rejects_a_nonpositive_limit(tmp_path: Path) -> None:
     repository = SQLiteEventRepository(tmp_path / "events.sqlite3")
 
     with pytest.raises(ValueError, match="limit must be positive"):
-        repository.list_upcoming(from_time=datetime.now(UTC), limit=0)
+        repository.list_upcoming(
+            time_range=TimeRange(datetime.now(UTC)), limit=0
+        )
 
 
 def test_list_upcoming_rejects_a_time_without_a_timezone(
@@ -379,5 +392,5 @@ def test_list_upcoming_rejects_a_time_without_a_timezone(
 
     with pytest.raises(ValueError, match="from_time must include a timezone"):
         repository.list_upcoming(
-            from_time=datetime(2026, 10, 23, 18, 0), limit=10
+            time_range=TimeRange(datetime(2026, 10, 23, 18, 0)), limit=10
         )

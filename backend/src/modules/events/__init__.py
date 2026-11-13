@@ -4,7 +4,7 @@ from infrastructure.persistence import (
     PersistenceConflictError,
     PersistenceError,
 )
-from modules.events.contracts import EventDraft
+from modules.events.contracts import EventDraft, TimeRange
 from modules.events.domain import Event, EventCategory
 from modules.events.interface import EventRepository
 
@@ -15,4 +15,5 @@ __all__ = [
     "EventRepository",
     "PersistenceConflictError",
     "PersistenceError",
+    "TimeRange",
 ]

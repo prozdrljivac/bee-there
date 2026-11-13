@@ -1,11 +1,12 @@
 """SQLAlchemy persistence for the Events module."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
+from itertools import islice
 from pathlib import Path
 from uuid import UUID, uuid7
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -14,7 +15,7 @@ from infrastructure.persistence import (
     PersistenceConflictError,
     PersistenceError,
 )
-from modules.events.contracts import EventDraft
+from modules.events.contracts import EventDraft, TimeRange
 from modules.events.domain import Event, EventCategory
 from modules.events.model import EventRow
 
@@ -46,6 +47,13 @@ def _event_from_row(row: EventRow) -> Event:
         created_at=datetime.fromisoformat(row.created_at),
         updated_at=datetime.fromisoformat(row.updated_at),
     )
+
+
+def _validate_pagination(limit: int, offset: int) -> None:
+    if limit <= 0:
+        raise ValueError("limit must be positive")
+    if offset < 0:
+        raise ValueError("offset must be non-negative")
 
 
 class SQLiteEventRepository:
@@ -118,25 +126,55 @@ class SQLiteEventRepository:
             session.flush()
             return _event_from_row(row)
 
-    def list_upcoming(self, *, from_time: datetime, limit: int) -> list[Event]:
-        """Return events starting on or after a time, in chronological order."""
-        if limit <= 0:
-            raise ValueError("limit must be positive")
-        if from_time.tzinfo is None or from_time.utcoffset() is None:
-            raise ValueError("from_time must include a timezone")
+    def list_upcoming(
+        self,
+        *,
+        time_range: TimeRange,
+        limit: int = 20,
+        q: str | None = None,
+        categories: Sequence[EventCategory] = (),
+        offset: int = 0,
+    ) -> list[Event]:
+        """Return events overlapping the interval, in stable chronological order."""
+        _validate_pagination(limit, offset)
 
         statement = (
             select(EventRow)
-            .where(EventRow.starts_at >= _as_database_text(from_time))
+            .where(
+                or_(
+                    EventRow.ends_at > _as_database_text(time_range.from_time),
+                    and_(
+                        EventRow.ends_at.is_(None),
+                        EventRow.starts_at
+                        >= _as_database_text(time_range.from_time),
+                    ),
+                )
+            )
             .order_by(EventRow.starts_at, EventRow.id)
-            .limit(limit)
         )
+        if time_range.to_time is not None:
+            statement = statement.where(
+                EventRow.starts_at < _as_database_text(time_range.to_time)
+            )
+        if categories:
+            statement = statement.where(EventRow.category.in_(categories))
+        if not q:
+            statement = statement.limit(limit).offset(offset)
         try:
             with self._sessions() as session:
-                rows = session.scalars(statement).all()
+                rows = session.scalars(statement)
+                if q:
+                    query = q.casefold()
+                    matches = (
+                        row for row in rows if query in row.title.casefold()
+                    )
+                    return [
+                        _event_from_row(row)
+                        for row in islice(matches, offset, offset + limit)
+                    ]
+                return [_event_from_row(row) for row in rows]
         except SQLAlchemyError as error:
             raise PersistenceError("event persistence failed") from error
-        return [_event_from_row(row) for row in rows]
 
     @staticmethod
     def _find_existing(session: Session, draft: EventDraft) -> EventRow | None:

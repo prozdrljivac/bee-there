@@ -176,7 +176,7 @@ def test_list_enabled_filters_and_orders_sources_by_name(
 ) -> None:
     repository = SQLiteSourceRepository(tmp_path / "database.sqlite3")
     for name, enabled in (
-        ("Zrenjanin Events", True),
+        ("Town Events", True),
         ("Disabled Source", False),
         ("Cultural Station", True),
     ):
@@ -192,7 +192,7 @@ def test_list_enabled_filters_and_orders_sources_by_name(
 
     assert [source.name for source in sources] == [
         "Cultural Station",
-        "Zrenjanin Events",
+        "Town Events",
     ]
 
 
@@ -200,12 +200,12 @@ def test_get_by_base_url_returns_a_stored_source(tmp_path: Path) -> None:
     repository = SQLiteSourceRepository(tmp_path / "database.sqlite3")
     created = repository.create(
         SourceDraft(
-            name="Moj Novi Sad",
-            base_url="https://www.mojnovisad.com/",
+            name="City Events",
+            base_url="https://example.com/",
         )
     )
 
-    assert repository.get_by_base_url("https://www.mojnovisad.com/") == created
+    assert repository.get_by_base_url("https://example.com/") == created
     assert repository.get_by_base_url("https://unknown.example/") is None
 
 

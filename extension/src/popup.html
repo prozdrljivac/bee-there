@@ -1,11 +1,11 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>BeeThere · Your next good plan</title>
     <script src="theme.js"></script>
-    <link rel="stylesheet" href="popup.css">
+    <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <div class="popup">
@@ -17,26 +17,26 @@
             src="assets/logo/beethere-logo-light.svg"
             alt=""
             aria-hidden="true"
-          >
+          />
           <img
             class="brand-logo brand-logo-dark"
             src="assets/logo/beethere-logo-dark.svg"
             alt=""
             aria-hidden="true"
-          >
+          />
         </a>
         <fieldset class="theme-switch">
           <legend class="visually-hidden">Theme</legend>
           <label for="theme-system">
-            <input id="theme-system" type="radio" name="theme" value="system">
+            <input id="theme-system" type="radio" name="theme" value="system" />
             <span>System</span>
           </label>
           <label for="theme-light">
-            <input id="theme-light" type="radio" name="theme" value="light">
+            <input id="theme-light" type="radio" name="theme" value="light" />
             <span>Light</span>
           </label>
           <label for="theme-dark">
-            <input id="theme-dark" type="radio" name="theme" value="dark">
+            <input id="theme-dark" type="radio" name="theme" value="dark" />
             <span>Dark</span>
           </label>
         </fieldset>
@@ -46,8 +46,172 @@
           <div class="section-heading">
             <h2>Upcoming events</h2>
           </div>
-          <p id="status" role="status" aria-live="polite"></p>
-          <div id="event-list" aria-live="polite" aria-busy="true"></div>
+          <div class="discovery-controls">
+            <p class="local-time">Novi Sad · Local dates and times</p>
+            <div class="search-field">
+              <img src="assets/discovery/search.svg" alt="" />
+              <label for="title-query" class="visually-hidden"
+                >Search event titles</label
+              >
+              <input
+                id="title-query"
+                type="search"
+                placeholder="Search event titles"
+                autocomplete="off"
+              />
+              <button
+                id="clear-query"
+                type="button"
+                aria-label="Clear search"
+                hidden
+              >
+                <img src="assets/discovery/close.svg" alt="" />
+              </button>
+            </div>
+            <div class="filter-row">
+              <button
+                id="category-trigger"
+                type="button"
+                aria-expanded="false"
+                aria-controls="category-menu"
+              >
+                <span>Categories</span
+                ><img src="assets/discovery/chevron.svg" alt="" />
+              </button>
+              <button
+                id="date-trigger"
+                type="button"
+                aria-expanded="false"
+                aria-controls="date-menu"
+              >
+                <span>Date · Any</span
+                ><img src="assets/discovery/chevron.svg" alt="" />
+              </button>
+            </div>
+            <div id="category-chips" class="chips"></div>
+          </div>
+          <div
+            id="category-menu"
+            class="filter-menu"
+            role="dialog"
+            aria-label="Categories"
+            hidden
+          >
+            <div class="menu-heading">
+              <strong>Categories</strong
+              ><button type="button" data-close aria-label="Close categories">
+                <img src="assets/discovery/close.svg" alt="" />
+              </button>
+            </div>
+            <p>Choose one or more. Results update as you select.</p>
+            <div class="category-options"></div>
+          </div>
+          <div
+            id="date-menu"
+            class="filter-menu"
+            role="dialog"
+            aria-label="Date"
+            hidden
+          >
+            <div class="menu-heading">
+              <strong>Date</strong
+              ><button type="button" data-close aria-label="Close dates">
+                <img src="assets/discovery/close.svg" alt="" />
+              </button>
+            </div>
+            <div class="date-presets">
+              <button type="button" data-date="any">
+                Any upcoming date <small>From today</small>
+              </button>
+              <button type="button" data-date="today">Today</button>
+              <button type="button" data-date="tomorrow">Tomorrow</button>
+              <button type="button" data-date="weekend">This weekend</button>
+              <button type="button" data-date="custom">
+                Custom date or range <small>Today or later</small>
+              </button>
+            </div>
+          </div>
+          <div
+            id="custom-menu"
+            class="filter-menu custom-menu"
+            role="dialog"
+            aria-label="Custom dates"
+            hidden
+          >
+            <div class="menu-heading">
+              <strong>Custom dates</strong
+              ><button type="button" data-close aria-label="Close custom dates">
+                <img src="assets/discovery/close.svg" alt="" />
+              </button>
+            </div>
+            <p id="date-format">
+              Format: DD MMM YYYY · Novi Sad time · Today or later
+            </p>
+            <div class="date-modes">
+              <button type="button" id="mode-single" aria-pressed="true">
+                Single date</button
+              ><button type="button" id="mode-range" aria-pressed="false">
+                Date range
+              </button>
+            </div>
+            <div class="date-inputs">
+              <label
+                ><span id="start-label">Date</span
+                ><span class="date-input"
+                  ><input
+                    id="custom-start"
+                    placeholder="DD MMM YYYY"
+                    aria-describedby="date-format date-feedback"
+                    autocomplete="off" /><img
+                    src="assets/discovery/calendar.svg"
+                    alt="" /></span
+              ></label>
+              <label id="end-label" hidden
+                >To<span class="date-input"
+                  ><input
+                    id="custom-end"
+                    placeholder="DD MMM YYYY"
+                    aria-describedby="date-format date-feedback"
+                    autocomplete="off" /><img
+                    src="assets/discovery/calendar.svg"
+                    alt="" /></span
+              ></label>
+            </div>
+            <p id="date-feedback" role="status"></p>
+            <div class="calendar-heading">
+              <button
+                type="button"
+                id="previous-month"
+                aria-label="Previous month"
+              >
+                <img src="assets/discovery/left.svg" alt="" /></button
+              ><strong id="calendar-month"></strong
+              ><button type="button" id="next-month" aria-label="Next month">
+                <img src="assets/discovery/right.svg" alt="" />
+              </button>
+            </div>
+            <div id="calendar" role="grid" aria-label="Choose date"></div>
+            <p id="calendar-note"></p>
+            <div class="date-footer">
+              <button type="button" id="clear-date">Clear date</button
+              ><button type="button" data-close>Close</button>
+            </div>
+          </div>
+          <div class="result-heading">
+            <p id="status" role="status" aria-live="polite"></p>
+            <button id="clear-all" type="button" hidden>Clear all</button>
+          </div>
+          <p id="discovery-notice" role="status" hidden></p>
+          <div
+            id="results"
+            role="region"
+            aria-label="Event results"
+            tabindex="0"
+          >
+            <div id="event-list" aria-busy="true"></div>
+            <div id="page-status" role="status" aria-live="polite"></div>
+            <div id="results-sentinel" aria-hidden="true"></div>
+          </div>
         </section>
       </main>
     </div>

@@ -1,4 +1,6 @@
 import { API_BASE_URL } from "./config.js";
+import { dateBounds, today, parseDay, formatDay } from "./discovery-dates.js";
+import { createDatePicker } from "./date-picker.js";
 
 const EVENT_TIME_ZONE = "Europe/Belgrade";
 const EVENT_CATEGORIES = new Set([
@@ -14,12 +16,6 @@ const EVENT_CATEGORIES = new Set([
   "fair",
   "other",
 ]);
-const dateFormatter = new Intl.DateTimeFormat("en-CA-u-ca-gregory-nu-latn", {
-  timeZone: EVENT_TIME_ZONE,
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
 const eventDateFormatter = new Intl.DateTimeFormat("en-GB", {
   timeZone: EVENT_TIME_ZONE,
   year: "numeric",
@@ -40,45 +36,6 @@ const eventDayFormatter = new Intl.DateTimeFormat("en-GB", {
   timeZone: EVENT_TIME_ZONE,
   day: "2-digit",
 });
-
-function dateParts(timestamp) {
-  const parts = dateFormatter.formatToParts(new Date(timestamp));
-  return Object.fromEntries(
-    parts
-      .filter((part) => part.type !== "literal")
-      .map((part) => [part.type, Number(part.value)]),
-  );
-}
-
-function compareDates(left, right) {
-  return (
-    left.year - right.year ||
-    left.month - right.month ||
-    left.day - right.day
-  );
-}
-
-function startOfToday() {
-  const target = dateParts(Date.now());
-  const approximateMidnight = Date.UTC(
-    target.year,
-    target.month - 1,
-    target.day,
-  );
-  let low = approximateMidnight - 36 * 60 * 60 * 1000;
-  let high = approximateMidnight + 36 * 60 * 60 * 1000;
-
-  while (low < high) {
-    const middle = low + Math.floor((high - low) / 2);
-    if (compareDates(dateParts(middle), target) < 0) {
-      low = middle + 1;
-    } else {
-      high = middle;
-    }
-  }
-
-  return new Date(low);
-}
 
 function textElement(tagName, className, text) {
   const element = document.createElement(tagName);
@@ -227,9 +184,15 @@ function removeRetry() {
 }
 
 function showLoading(status, eventList) {
-  status.className = "visually-hidden";
-  status.textContent = "Loading events…";
+  status.className = "";
   eventList.setAttribute("aria-busy", "true");
+  if (eventList.querySelector(".event-card")) {
+    status.textContent = "Updating results…";
+    eventList.inert = true;
+    eventList.classList.add("updating");
+    return;
+  }
+  status.textContent = "Loading events…";
   eventList.replaceChildren();
   for (let index = 0; index < 2; index += 1) {
     const skeleton = document.createElement("div");
@@ -256,64 +219,358 @@ function stateElement(icon, title, message) {
   return state;
 }
 
-function showEmpty(status, eventList) {
-  status.className = "visually-hidden";
-  status.textContent = "No upcoming events.";
-  eventList.replaceChildren(
-    stateElement(
-      "✳",
-      "A quiet moment.",
-      "No upcoming events right now. Come back soon for your next good plan.",
-    ),
+function hasFilters() {
+  return Boolean(
+    queryInput.value ||
+    selectedCategories.size ||
+    datePicker.choice.kind !== "any",
   );
 }
 
-function showError(status, eventList) {
-  status.className = "visually-hidden";
-  status.textContent = "Could not load events.";
+function clearAllChoices() {
+  queryInput.value = "";
+  clearQuery.hidden = true;
+  selectedCategories.clear();
+  updateCategories();
+  datePicker.setChoice({ kind: "any" }, false);
+  queryInput.focus();
+  void requestEvents();
+}
+
+function showEmpty(status, eventList) {
+  const filtered = hasFilters();
+  status.className = "";
+  status.textContent = filtered ? "0 events" : "No upcoming events.";
   const state = stateElement(
-    "↻",
-    "A small bump in the road.",
-    "We could not load the events. Please try again.",
+    "",
+    filtered ? "No matching events" : "No upcoming events",
+    filtered
+      ? "Try another title or remove a filter. Your current choices have been kept."
+      : "No upcoming events right now. Come back soon for your next good plan.",
+  );
+  if (filtered) {
+    const clear = textElement("button", "", "Clear all filters");
+    clear.type = "button";
+    clear.addEventListener("click", clearAllChoices);
+    state.append(clear);
+  }
+  eventList.replaceChildren(state);
+}
+
+function showError(status, eventList) {
+  const filtered = hasFilters();
+  const version = requestVersion;
+  status.className = "";
+  status.textContent = filtered
+    ? "Could not update events"
+    : "Could not load events.";
+  const state = stateElement(
+    "",
+    filtered ? "Could not load events" : "A small bump in the road.",
+    filtered
+      ? "Your search and filters are still here. Check your connection and try again."
+      : "We could not load the events. Please try again.",
   );
   const retry = textElement("button", "", "Try again");
   retry.id = "retry";
   retry.type = "button";
-  retry.addEventListener("click", () => void requestEvents());
+  retry.addEventListener("click", () => {
+    if (version === requestVersion) void requestEvents();
+  });
   state.append(retry);
   eventList.replaceChildren(state);
 }
 
-async function requestEvents() {
+function persistChoices() {
+  try {
+    localStorage.setItem(
+      "bee-there-discovery",
+      JSON.stringify({
+        query: queryInput.value,
+        categories: [...selectedCategories],
+        date: datePicker.choice,
+      }),
+    );
+  } catch {
+    /* Storage can be unavailable in restricted browser profiles. */
+  }
+  document.querySelector("#clear-all").hidden =
+    !queryInput.value &&
+    !selectedCategories.size &&
+    datePicker.choice.kind === "any";
+}
+
+const PAGE_SIZE = 20;
+let requestVersion = 0;
+let activeRequest;
+let nextOffset = 0;
+let hasMore = false;
+let loadingPage = false;
+let pageFailed = false;
+const results = document.querySelector("#results");
+const sentinel = document.querySelector("#results-sentinel");
+const pageStatus = document.querySelector("#page-status");
+const pageObserver = new IntersectionObserver(
+  (entries) => {
+    if (
+      entries.some((entry) => entry.isIntersecting) &&
+      hasMore &&
+      !loadingPage &&
+      !pageFailed
+    )
+      void requestEvents(true);
+  },
+  { root: results, rootMargin: "80px" },
+);
+
+function eventRequestUrl(offset) {
+  const url = new URL("/api/events", API_BASE_URL);
+  for (const [key, value] of Object.entries(dateBounds(datePicker.choice)))
+    url.searchParams.set(key, value);
+  if (queryInput.value) url.searchParams.set("q", queryInput.value);
+  for (const category of selectedCategories)
+    url.searchParams.append("category", category);
+  url.searchParams.set("limit", String(PAGE_SIZE));
+  url.searchParams.set("offset", String(offset));
+  return url;
+}
+
+function showPageError(version) {
+  pageStatus.textContent = "Could not load more events.";
+  const retry = textElement("button", "", "Try again");
+  retry.id = "retry-more";
+  retry.type = "button";
+  retry.addEventListener("click", () => {
+    if (version === requestVersion && !loadingPage) void requestEvents(true);
+  });
+  pageStatus.append(retry);
+}
+
+async function fetchEventPage(offset, signal) {
+  const response = await fetch(eventRequestUrl(offset), { signal });
+  if (!response.ok) {
+    throw new Error(`Event request failed with status ${response.status}`);
+  }
+  const events = await response.json();
+  if (!Array.isArray(events) || !events.every(isValidEvent)) {
+    throw new TypeError("Event response is invalid");
+  }
+  return events;
+}
+
+function enableEventList(eventList) {
+  eventList.setAttribute("aria-busy", "false");
+  eventList.inert = false;
+  eventList.classList.remove("updating");
+}
+
+async function requestEvents(append = false) {
+  if (append && (loadingPage || !hasMore)) return;
+  if (!append) {
+    ++requestVersion;
+    activeRequest?.abort();
+    nextOffset = 0;
+    hasMore = false;
+    results.scrollTop = 0;
+    persistChoices();
+  }
+  const version = requestVersion;
+  const offset = nextOffset;
+  activeRequest = new AbortController();
+  loadingPage = true;
+  pageFailed = false;
+  pageObserver.unobserve(sentinel);
+  pageStatus.replaceChildren();
   const status = document.querySelector("#status");
   const eventList = document.querySelector("#event-list");
   removeRetry();
-  showLoading(status, eventList);
+  if (append) pageStatus.textContent = "Loading more events…";
+  else showLoading(status, eventList);
 
   try {
-    const url = new URL("/api/events", API_BASE_URL);
-    url.searchParams.set("from", startOfToday().toISOString());
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Event request failed with status ${response.status}`);
-    }
-    const events = await response.json();
-    if (!Array.isArray(events) || !events.every(isValidEvent)) {
-      throw new TypeError("Event response is invalid");
-    }
-
-    eventList.setAttribute("aria-busy", "false");
-    if (events.length === 0) {
-      showEmpty(status, eventList);
-    } else {
+    const events = await fetchEventPage(offset, activeRequest.signal);
+    if (version !== requestVersion) return;
+    nextOffset = offset + events.length;
+    hasMore = events.length === PAGE_SIZE;
+    enableEventList(eventList);
+    if (append) eventList.append(...events.map(renderEvent));
+    else if (!events.length) showEmpty(status, eventList);
+    else eventList.replaceChildren(...events.map(renderEvent));
+    if (nextOffset) {
       status.className = "";
-      status.textContent = "";
-      eventList.replaceChildren(...events.map(renderEvent));
+      status.textContent = `${nextOffset}${hasMore ? "+" : ""} events · Earliest first`;
     }
+    pageStatus.textContent = "";
   } catch {
-    eventList.setAttribute("aria-busy", "false");
-    showError(status, eventList);
+    if (version !== requestVersion) return;
+    enableEventList(eventList);
+    pageFailed = true;
+    if (append) showPageError(version);
+    else showError(status, eventList);
+  } finally {
+    if (version === requestVersion) {
+      loadingPage = false;
+      if (hasMore && !pageFailed) pageObserver.observe(sentinel);
+    }
   }
 }
 
+const selectedCategories = new Set();
+const categoryMenu = document.querySelector("#category-menu");
+const categoryTrigger = document.querySelector("#category-trigger");
+const categoryChips = document.querySelector("#category-chips");
+const categoryInputs = new Map();
+function closeCategories(restoreFocus = false) {
+  categoryMenu.hidden = true;
+  categoryTrigger.setAttribute("aria-expanded", "false");
+  if (restoreFocus) categoryTrigger.focus();
+}
+function updateDiscoveryIcons() {
+  const theme = document.documentElement.dataset.theme;
+  const dark =
+    theme === "dark" ||
+    (!theme && matchMedia("(prefers-color-scheme: dark)").matches);
+  for (const image of document.querySelectorAll(
+    'img[src^="assets/discovery/"]',
+  )) {
+    const name = image
+      .getAttribute("src")
+      .split("/")
+      .at(-1)
+      .replace("-dark.svg", ".svg");
+    if (
+      ["search.svg", "close.svg", "chevron.svg", "chip-close.svg"].includes(
+        name,
+      )
+    ) {
+      image.src = `assets/discovery/${dark ? name.replace(".svg", "-dark.svg") : name}`;
+    }
+  }
+}
+new MutationObserver(updateDiscoveryIcons).observe(document.documentElement, {
+  attributes: true,
+  attributeFilter: ["data-theme"],
+});
+matchMedia("(prefers-color-scheme: dark)").addEventListener(
+  "change",
+  updateDiscoveryIcons,
+);
+
+function updateCategories() {
+  categoryTrigger.classList.toggle(
+    "active-filter",
+    selectedCategories.size > 0,
+  );
+  categoryTrigger.querySelector("span").textContent = selectedCategories.size
+    ? `Categories · ${selectedCategories.size}`
+    : "Categories";
+  categoryChips.replaceChildren();
+  for (const [category, input] of categoryInputs)
+    input.checked = selectedCategories.has(category);
+  for (const category of selectedCategories) {
+    const label = category[0].toUpperCase() + category.slice(1);
+    const chip = textElement("button", "category-chip", label);
+    chip.type = "button";
+    chip.setAttribute("aria-label", `Remove ${label} category`);
+    const icon = document.createElement("img");
+    icon.src = "assets/discovery/chip-close.svg";
+    icon.alt = "";
+    chip.append(icon);
+    chip.addEventListener("click", () => {
+      selectedCategories.delete(category);
+      updateCategories();
+      categoryTrigger.focus();
+      void requestEvents();
+    });
+    categoryChips.append(chip);
+  }
+  updateDiscoveryIcons();
+}
+for (const category of EVENT_CATEGORIES) {
+  const label = document.createElement("label");
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.id = `category-${category}`;
+  input.value = category;
+  categoryInputs.set(category, input);
+  input.addEventListener("change", () => {
+    if (input.checked) selectedCategories.add(category);
+    else selectedCategories.delete(category);
+    updateCategories();
+    void requestEvents();
+  });
+  label.append(input, category[0].toUpperCase() + category.slice(1));
+  categoryMenu.querySelector(".category-options").append(label);
+}
+categoryTrigger.addEventListener("click", () => {
+  datePicker.close();
+  categoryMenu.hidden = !categoryMenu.hidden;
+  categoryTrigger.setAttribute("aria-expanded", String(!categoryMenu.hidden));
+  if (!categoryMenu.hidden) categoryMenu.querySelector("input").focus();
+});
+categoryMenu
+  .querySelector("[data-close]")
+  .addEventListener("click", () => closeCategories(true));
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !categoryMenu.hidden) {
+    event.preventDefault();
+    closeCategories(true);
+  }
+});
+document.addEventListener("click", (event) => {
+  if (
+    !categoryMenu.contains(event.target) &&
+    !categoryTrigger.contains(event.target)
+  )
+    closeCategories();
+});
+const datePicker = createDatePicker(
+  () => void requestEvents(),
+  () => closeCategories(),
+);
+const queryInput = document.querySelector("#title-query");
+const clearQuery = document.querySelector("#clear-query");
+queryInput.addEventListener("input", () => {
+  clearQuery.hidden = !queryInput.value;
+  void requestEvents();
+});
+clearQuery.addEventListener("click", () => {
+  queryInput.value = "";
+  clearQuery.hidden = true;
+  queryInput.focus();
+  void requestEvents();
+});
+document.querySelector("#clear-all").addEventListener("click", clearAllChoices);
+try {
+  const saved = JSON.parse(localStorage.getItem("bee-there-discovery"));
+  if (saved && typeof saved.query === "string") queryInput.value = saved.query;
+  if (Array.isArray(saved?.categories)) {
+    for (const category of saved.categories)
+      if (EVENT_CATEGORIES.has(category)) selectedCategories.add(category);
+  }
+  if (["any", "today", "tomorrow", "weekend"].includes(saved?.date?.kind))
+    datePicker.setChoice(saved.date, false);
+  if (saved?.date?.kind === "custom") {
+    const { start, end } = saved.date;
+    const validDay = (day) =>
+      typeof day === "string" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(day) &&
+      parseDay(formatDay(day)) === day;
+    if (validDay(start) && validDay(end) && end >= start) {
+      const notice = document.querySelector("#discovery-notice");
+      if (end < today()) {
+        notice.textContent =
+          "Date filter reset. Your saved dates have passed. Showing any upcoming date.";
+      } else if (start < today()) {
+        datePicker.setChoice({ kind: "custom", start: today(), end }, false);
+        notice.textContent = `Date range adjusted. Your range now starts today, ${formatDay(today(), false)}.`;
+      } else datePicker.setChoice(saved.date, false);
+      notice.hidden = !notice.textContent;
+    }
+  }
+} catch {
+  /* Ignore invalid or unavailable local preferences. */
+}
+clearQuery.hidden = !queryInput.value;
+updateCategories();
 void requestEvents();

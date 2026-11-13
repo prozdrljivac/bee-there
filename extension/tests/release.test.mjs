@@ -12,10 +12,7 @@ const extensionDirectory = path.resolve(
 );
 const distributionDirectory = path.join(extensionDirectory, "dist");
 const releaseDirectory = path.join(extensionDirectory, "release");
-const archivePath = path.join(
-  releaseDirectory,
-  "bee-there-chrome-0.1.0.zip",
-);
+const archivePath = path.join(releaseDirectory, "bee-there-chrome-0.1.0.zip");
 
 before(async () => {
   await rm(distributionDirectory, { force: true, recursive: true });
@@ -38,13 +35,27 @@ test("the release command creates a minimal Chrome upload archive", async () => 
 
   const archive = unzipSync(await readFile(archivePath));
   assert.deepEqual(Object.keys(archive).sort(), [
+    "assets/discovery/calendar.svg",
+    "assets/discovery/chevron-dark.svg",
+    "assets/discovery/chevron.svg",
+    "assets/discovery/chip-close-dark.svg",
+    "assets/discovery/chip-close.svg",
+    "assets/discovery/close-dark.svg",
+    "assets/discovery/close.svg",
+    "assets/discovery/left.svg",
+    "assets/discovery/right.svg",
+    "assets/discovery/search-dark.svg",
+    "assets/discovery/search.svg",
     "assets/logo/beethere-icon-128.png",
     "assets/logo/beethere-icon-16.png",
     "assets/logo/beethere-icon-32.png",
     "assets/logo/beethere-icon-48.png",
     "assets/logo/beethere-logo-dark.svg",
     "assets/logo/beethere-logo-light.svg",
+    "calendar.js",
     "config.js",
+    "date-picker.js",
+    "discovery-dates.js",
     "manifest.json",
     "popup.css",
     "popup.html",

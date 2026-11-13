@@ -10,6 +10,12 @@
 - Prefer clear code over comments or documentation that repeat what the code does. Keep explanations for non-obvious reasons and constraints.
 - Before requesting review, check changed code for readability and simplicity. Refactor with tests green and rerun relevant tests after each material change.
 
+## Test Data Language
+
+- Use English for general test data. Do not tie generic tests to Serbian names, text, or event sources.
+- Keep source-language data when a test checks a specific source adapter, extraction behavior, or a source integration or end-to-end flow.
+- Keep Unicode and encoding coverage where needed. Use clear examples without tying generic tests to a specific market.
+
 ## Visual Change Review
 
 - Read and follow `.agents/skills/change-review/SKILL.md` before reporting completion only when the current task changes source code or test code in this repository.

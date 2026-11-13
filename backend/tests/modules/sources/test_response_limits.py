@@ -102,7 +102,7 @@ def test_accepts_supported_pages_at_exact_size_limit(content_type: str) -> None:
 
 
 def test_accepts_compressed_html_with_declared_charset() -> None:
-    text = "Događaj"
+    text = "Café event"
     compressed = gzip.compress(text.encode("iso-8859-2"))
     stream = TrackedStream([compressed])
     assert (
