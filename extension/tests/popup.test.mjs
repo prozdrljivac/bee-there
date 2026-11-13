@@ -259,6 +259,72 @@ test("the popup follows the browser color scheme by default", async () => {
   await triggerPage.close();
 });
 
+test("the theme switch shows named icons at the design size", async () => {
+  const { popup, triggerPage } = await openPopup();
+  const options = await popup.$$eval(".theme-switch label", (labels) =>
+    labels.map((label) => {
+      const target = label.querySelector("input + span");
+      const icon = label.querySelector("svg");
+      const name = label.querySelector(".visually-hidden");
+      return {
+        value: label.querySelector("input").value,
+        name: name?.textContent,
+        tooltip: label.title,
+        hiddenName: name ? getComputedStyle(name).clipPath : null,
+        targetSize: [target.clientWidth, target.clientHeight],
+        iconSize: icon ? [icon.clientWidth, icon.clientHeight] : null,
+        decorative: icon?.getAttribute("aria-hidden"),
+      };
+    }),
+  );
+  assert.deepEqual(options, ["System", "Light", "Dark"].map((name) => ({
+    value: name.toLowerCase(),
+    name,
+    tooltip: name,
+    hiddenName: "inset(50%)",
+    targetSize: [32, 28],
+    iconSize: [18, 18],
+    decorative: "true",
+  })));
+  for (const name of ["System", "Light", "Dark"]) {
+    assert.ok(await popup.$(`::-p-aria(${name}[role="radio"])`));
+  }
+  await popup.close();
+  await triggerPage.close();
+});
+
+test("theme icons show hover and keyboard focus in both appearances", async () => {
+  const { popup, triggerPage } = await openPopup();
+  for (const [scheme, hoverColor, focusColor] of [
+    ["light", "rgb(230, 235, 223)", "rgb(82, 107, 63)"],
+    ["dark", "rgb(59, 80, 53)", "rgb(211, 234, 169)"],
+  ]) {
+    await popup.emulateMediaFeatures([
+      { name: "prefers-color-scheme", value: scheme },
+    ]);
+    await popup.hover("label[for='theme-light']");
+    assert.equal(await popup.$eval("#theme-light + span", (target) =>
+      getComputedStyle(target).backgroundColor), hoverColor);
+    assert.equal(await popup.$eval("#theme-system", (input) => input.checked), true);
+    await popup.mouse.move(0, 0);
+    await popup.focus(".brand");
+    await popup.keyboard.press("Tab");
+    assert.deepEqual(await popup.$eval("#theme-system", (input) => ({
+      checked: input.checked,
+      focused: input.matches(":focus-visible"),
+      outline: getComputedStyle(input.nextElementSibling).outlineColor,
+      outlineWidth: getComputedStyle(input.nextElementSibling).outlineWidth,
+    })), { checked: true, focused: true, outline: focusColor, outlineWidth: "2px" });
+    await popup.keyboard.press("ArrowRight");
+    assert.equal(await popup.$eval("#theme-light", (input) => input.checked), true);
+    await popup.keyboard.press("ArrowLeft");
+    assert.equal(await popup.$eval("#theme-system", (input) => input.checked), true);
+    assert.equal(await popup.evaluate(() => localStorage.getItem("bee-there-theme")), null);
+  }
+  await popup.close();
+  await triggerPage.close();
+});
+
 test("the theme switch persists an override and can return to system", async () => {
   const { popup, triggerPage } = await openPopup();
   await popup.emulateMediaFeatures([

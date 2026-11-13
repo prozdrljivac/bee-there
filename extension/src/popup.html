@@ -27,17 +27,34 @@
         </a>
         <fieldset class="theme-switch">
           <legend class="visually-hidden">Theme</legend>
-          <label for="theme-system">
+          <label for="theme-system" title="System">
             <input id="theme-system" type="radio" name="theme" value="system" />
-            <span>System</span>
+            <span class="theme-option">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <rect x="2" y="3" width="20" height="14" rx="2" />
+                <path d="M8 21h8M12 17v4" />
+              </svg>
+              <span class="visually-hidden">System</span>
+            </span>
           </label>
-          <label for="theme-light">
+          <label for="theme-light" title="Light">
             <input id="theme-light" type="radio" name="theme" value="light" />
-            <span>Light</span>
+            <span class="theme-option">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" />
+              </svg>
+              <span class="visually-hidden">Light</span>
+            </span>
           </label>
-          <label for="theme-dark">
+          <label for="theme-dark" title="Dark">
             <input id="theme-dark" type="radio" name="theme" value="dark" />
-            <span>Dark</span>
+            <span class="theme-option">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.44.402.784a6.25 6.25 0 0 0 8.268 8.268c.344-.215.806-.004.803.42" />
+              </svg>
+              <span class="visually-hidden">Dark</span>
+            </span>
           </label>
         </fieldset>
       </header>
