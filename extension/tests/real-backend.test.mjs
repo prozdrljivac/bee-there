@@ -39,10 +39,14 @@ async function findAvailablePort() {
 
 async function waitForBackend() {
   const url = new URL("/api/events", apiBaseUrl);
-  url.searchParams.set("from", "2025-03-30T22:00:00Z");
+
   for (let attempt = 0; attempt < 50; attempt += 1) {
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, {
+        method: "QUERY",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from: "2025-03-30T22:00:00Z" }),
+      });
       if (response.ok) {
         return;
       }
@@ -408,6 +412,145 @@ for index in range(44):
     );
   } finally {
     await popup.close();
+    await triggerPage.close();
+  }
+});
+
+function seedFavoriteEvents(mode = "initial") {
+  const seed = spawnSync("uv", ["run", "python", "-c", `
+from datetime import UTC, datetime, timedelta
+import os
+from modules.events.contracts import EventDraft
+from modules.events.domain import EventCategory
+from modules.events.sqlite import SQLiteEventRepository
+from modules.sources.contracts import SourceDraft
+from modules.sources.sqlite import SQLiteSourceRepository
+path = os.environ["BEE_THERE_DATABASE_PATH"]
+mode = os.environ["FAVORITES_FIXTURE_MODE"]
+sources = SQLiteSourceRepository(path)
+source = sources.get_by_base_url("https://favorites.example/")
+if source is None:
+    source = sources.create(SourceDraft(name="Favorite Events", base_url="https://favorites.example"))
+repository = SQLiteEventRepository(path)
+for index in (range(45) if mode == "initial" else [44]):
+    starts = datetime(2025, 4, 2, 18, tzinfo=UTC) + timedelta(minutes=index)
+    if mode == "unavailable":
+        starts = datetime(2025, 3, 29, 18, tzinfo=UTC)
+    repository.upsert(EventDraft(
+        title=f"Favorite plan {index:02}" + (" updated" if mode != "initial" else ""),
+        summary="A current listing from the real backend.",
+        category=EventCategory.MUSIC, starts_at=starts,
+        location_name="Updated Hall" if mode != "initial" else "First Hall",
+        source_id=source.id, source_url=f"https://favorites.example/events/{index}",
+        external_id=str(index),
+    ))
+`], {
+    cwd: backendDirectory,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      BEE_THERE_DATABASE_PATH: path.join(temporaryDirectory, "bee-there.sqlite3"),
+      PYTHONPATH: path.join(backendDirectory, "src"),
+      FAVORITES_FIXTURE_MODE: mode,
+    },
+  });
+  assert.equal(seed.status, 0, seed.stderr || seed.stdout);
+}
+
+test("favorites from distant pages persist and use current real backend listings", async () => {
+  seedFavoriteEvents();
+  let { popup, triggerPage } = await openPopup();
+  const eventRequests = [];
+  const recordEventRequests = page => page.on("request", request => {
+    const url = new URL(request.url());
+    if (url.pathname !== "/api/events") return;
+    assert.equal(request.method(), "QUERY");
+    assert.equal(request.headers()["content-type"], "application/json");
+    assert.equal(url.search, "");
+    eventRequests.push(JSON.parse(request.postData()));
+  });
+  recordEventRequests(popup);
+  try {
+    await popup.evaluate(() => {
+      localStorage.removeItem("bee-there-discovery");
+      localStorage.removeItem("bee-there-favorites");
+    });
+    await popup.reload();
+
+    await popup.click("#toggle-filters");
+    await popup.type("#title-query", "Favorite plan");
+    await popup.waitForFunction(() =>
+      document.querySelector("#status").textContent.startsWith("20+ events") &&
+      document.querySelector(".event-title")?.textContent === "Favorite plan 00",
+    );
+    assert.deepEqual(eventRequests.at(-1), {
+      from: "2025-03-30T22:00:00.000Z", q: "Favorite plan", limit: 20, offset: 0,
+    });
+    await popup.click(".event-card:first-child .favorite-action");
+    for (const count of [40, 45]) {
+      await popup.$eval("#results", element => {
+        element.scrollTop = element.scrollHeight;
+      });
+      await popup.waitForFunction(
+        count => document.querySelectorAll(".event-card").length === count,
+        {}, count,
+      );
+    }
+    await popup.click(".event-card:last-child .favorite-action");
+    await popup.click("#category-trigger");
+    await popup.click("#category-music");
+    await popup.keyboard.press("Escape");
+    await popup.click("#date-trigger");
+    await popup.click('[data-date="custom"]');
+    await popup.type("#custom-start", "02 Apr 2025");
+    await popup.keyboard.press("Escape");
+    await popup.click("#favorites-only");
+    await popup.waitForFunction(() => document.querySelectorAll(".event-card").length === 2);
+    assert.deepEqual(await popup.$$eval(".event-title", items => items.map(item => item.textContent)), [
+      "Favorite plan 00", "Favorite plan 44",
+    ]);
+    const savedIds = await popup.evaluate(() => JSON.parse(localStorage.getItem("bee-there-favorites")));
+    assert.equal(savedIds.length, 2);
+    assert.deepEqual(eventRequests.at(-1), {
+      event_ids: savedIds,
+      from: "2025-04-01T22:00:00.000Z",
+      to: "2025-04-02T22:00:00.000Z",
+      q: "Favorite plan", category: ["music"], limit: 20, offset: 0,
+    });
+    await popup.close();
+    await triggerPage.close();
+    ({ popup, triggerPage } = await openPopup());
+    recordEventRequests(popup);
+    await popup.waitForSelector(".event-card:nth-child(2)");
+    assert.equal(await popup.$eval("#discovery-filters", element => element.hidden), true);
+    assert.equal(await popup.$eval("#favorites-only", element => element.getAttribute("aria-pressed")), "true");
+    assert.equal(await popup.$$eval('.favorite-action[aria-pressed="true"]', items => items.length), 2);
+
+    seedFavoriteEvents("updated");
+    await popup.reload();
+    await popup.waitForFunction(() => [...document.querySelectorAll(".event-title")].some(item => item.textContent === "Favorite plan 44 updated"));
+    assert.equal(await popup.$eval(".event-card:last-child .event-location", element => element.textContent), "Updated Hall");
+
+    seedFavoriteEvents("unavailable");
+    await popup.reload();
+    await popup.waitForFunction(() => document.querySelectorAll(".event-card").length === 1 && document.querySelector("#event-list").getAttribute("aria-busy") === "false");
+    assert.deepEqual(await popup.evaluate(() => JSON.parse(localStorage.getItem("bee-there-favorites"))), savedIds);
+
+    seedFavoriteEvents("returned");
+    await popup.reload();
+    await popup.waitForSelector('.event-card:nth-child(2) .favorite-action[aria-pressed="true"]');
+    await popup.click(".event-card:first-child .favorite-action");
+    await popup.waitForFunction(() => document.querySelectorAll(".event-card").length === 1 && document.querySelector(".event-title").textContent === "Favorite plan 44 updated");
+    const remainingIds = await popup.evaluate(() => JSON.parse(localStorage.getItem("bee-there-favorites")));
+    assert.equal(remainingIds.length, 1);
+    await popup.click("#clear-all");
+    await popup.waitForFunction(() => document.querySelector("#favorites-only").getAttribute("aria-pressed") === "false" && document.querySelector("#event-list").getAttribute("aria-busy") === "false");
+    assert.deepEqual(eventRequests.at(-1), {
+      from: "2025-03-30T22:00:00.000Z", limit: 20, offset: 0,
+    });
+    assert.deepEqual(await popup.evaluate(() => JSON.parse(localStorage.getItem("bee-there-favorites"))), remainingIds);
+  } finally {
+    if (!popup.isClosed()) await popup.close();
     await triggerPage.close();
   }
 });

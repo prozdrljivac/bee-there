@@ -17,9 +17,10 @@ The application uses `bee-there.sqlite3` by default. Set
 ## Internal API reference
 
 With the API running locally, open [Swagger UI](http://127.0.0.1:8000/docs)
-for the interactive reference, or [ReDoc](http://127.0.0.1:8000/redoc) for a
-reading view. The [OpenAPI schema](http://127.0.0.1:8000/openapi.json) is generated
-from the running application's routes, query definitions, and response models.
+for the interactive reference. Swagger UI is the single API reference and can
+submit QUERY searches and GET health checks. The [OpenAPI 3.2 schema](http://127.0.0.1:8000/openapi.json)
+is generated from the running application's routes, request definitions, and
+response models. ReDoc is not served because it does not support QUERY.
 No separate documentation build or checked-in schema is needed.
 
 Use this reference for event filters, date bounds, search, ordering, pagination,
@@ -128,9 +129,9 @@ uv run uvicorn main:app --app-dir src
 Then request events using a timezone-aware start time:
 
 ```shell
-curl --get http://127.0.0.1:8000/api/events \
-  --data-urlencode 'from=2026-10-26T00:00:00+00:00' \
-  --data-urlencode 'limit=20'
+curl --request QUERY http://127.0.0.1:8000/api/events \
+  --header 'Content-Type: application/json' \
+  --data '{"from":"2026-10-26T00:00:00Z","limit":20}'
 ```
 
 Set `BEE_THERE_DATABASE_PATH` for migrations, ingestion, and the API if you do not want to use the

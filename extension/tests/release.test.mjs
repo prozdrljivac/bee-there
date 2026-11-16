@@ -56,6 +56,7 @@ test("the release command creates a minimal Chrome upload archive", async () => 
     "config.js",
     "date-picker.js",
     "discovery-dates.js",
+    "favorites.js",
     "manifest.json",
     "popup.css",
     "popup.html",

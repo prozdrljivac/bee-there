@@ -75,6 +75,7 @@ class RecordingEventRepository:
         categories: Sequence[EventCategory] = (),
         q: str | None = None,
         offset: int = 0,
+        event_ids: Sequence[UUID] | None = None,
     ) -> list[Event]:
         raise NotImplementedError
 

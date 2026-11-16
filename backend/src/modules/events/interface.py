@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from typing import Protocol
+from uuid import UUID
 
 from modules.events.contracts import EventDraft, TimeRange
 from modules.events.domain import Event, EventCategory
@@ -22,6 +23,7 @@ class EventRepository(Protocol):
         categories: Sequence[EventCategory] = (),
         q: str | None = None,
         offset: int = 0,
+        event_ids: Sequence[UUID] | None = None,
     ) -> list[Event]:
-        """List overlapping events with optional filters and stable pagination."""
+        """List overlapping events; None IDs means all, empty IDs means none."""
         ...

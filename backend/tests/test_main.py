@@ -38,9 +38,10 @@ def test_application_composes_the_events_api(tmp_path: Path) -> None:
     )
 
     with TestClient(create_application(database_path)) as client:
-        response = client.get(
+        response = client.request(
+            "QUERY",
             "/api/events",
-            params={"from": "2026-11-01T00:00:00+00:00"},
+            json={"from": "2026-11-01T00:00:00+00:00"},
         )
 
     assert response.status_code == 200

@@ -134,6 +134,7 @@ class SQLiteEventRepository:
         q: str | None = None,
         categories: Sequence[EventCategory] = (),
         offset: int = 0,
+        event_ids: Sequence[UUID] | None = None,
     ) -> list[Event]:
         """Return events overlapping the interval, in stable chronological order."""
         _validate_pagination(limit, offset)
@@ -152,6 +153,10 @@ class SQLiteEventRepository:
             )
             .order_by(EventRow.starts_at, EventRow.id)
         )
+        if event_ids is not None:
+            statement = statement.where(
+                EventRow.id.in_([str(event_id) for event_id in event_ids])
+            )
         if time_range.to_time is not None:
             statement = statement.where(
                 EventRow.starts_at < _as_database_text(time_range.to_time)

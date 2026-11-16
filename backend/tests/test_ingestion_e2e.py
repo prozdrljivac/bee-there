@@ -55,9 +55,10 @@ def test_ingests_moj_novi_sad_and_serves_the_event(
     assert result.stored_count == 1
     assert result.failed_count == 0
     with TestClient(create_application(database_path)) as client:
-        response = client.get(
+        response = client.request(
+            "QUERY",
             "/api/events",
-            params={"from": "2026-10-26T00:00:00+00:00"},
+            json={"from": "2026-10-26T00:00:00+00:00"},
         )
     assert response.status_code == 200
     assert response.json() == [

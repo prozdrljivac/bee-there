@@ -2,11 +2,15 @@
 
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Query
-from pydantic import AwareDatetime
+from fastapi import Body, FastAPI, HTTPException
 
-from api.schemas import ErrorResponse, EventResponse, QueryValidationError
-from modules.events import EventCategory, EventRepository, TimeRange
+from api.schemas import (
+    ErrorResponse,
+    EventQuery,
+    EventResponse,
+    QueryValidationError,
+)
+from modules.events import Event, EventRepository, TimeRange
 from modules.sources import SourceRepository
 
 
@@ -15,7 +19,24 @@ def create_app(
     source_repository: SourceRepository,
 ) -> FastAPI:
     """Create the BeeThere HTTP application."""
-    app = FastAPI(title="BeeThere")
+    app = FastAPI(
+        title="BeeThere",
+        redoc_url=None,
+        swagger_ui_parameters={
+            "supportedSubmitMethods": [
+                "get",
+                "put",
+                "post",
+                "delete",
+                "options",
+                "head",
+                "patch",
+                "trace",
+                "query",
+            ],
+        },
+    )
+    app.openapi_version = "3.2.0"
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -26,8 +47,9 @@ def create_app(
         """
         return {"status": "ok"}
 
-    @app.get(
+    @app.api_route(
         "/api/events",
+        methods=["QUERY"],
         response_model=list[EventResponse],
         responses={
             200: {
@@ -39,7 +61,7 @@ def create_app(
             422: {
                 "model": QueryValidationError | ErrorResponse,
                 "description": (
-                    "Invalid or missing query values return a list of issues. "
+                    "Invalid JSON bodies, Content-Type, or fields return issues. "
                     "A to bound at or before from returns a string reason."
                 ),
                 "content": {
@@ -50,7 +72,7 @@ def create_app(
                                 "value": {
                                     "detail": [
                                         {
-                                            "loc": ["query", "from"],
+                                            "loc": ["body", "from"],
                                             "msg": "Field required",
                                             "type": "missing",
                                         }
@@ -81,109 +103,64 @@ def create_app(
                 },
             },
         },
+        openapi_extra={
+            # FastAPI does not yet include QUERY in METHODS_WITH_BODY.
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/json": {
+                        "schema": {"$ref": "#/components/schemas/EventQuery"},
+                    },
+                },
+            },
+        },
     )
-    def list_events(
-        from_time: Annotated[
-            AwareDatetime,
-            Query(
-                alias="from",
-                description=(
-                    "Required lower bound with a timezone (Z or UTC offset). "
-                    "Includes ongoing events whose end is after this bound. "
-                    "Events with no end must start at or after this bound."
-                ),
-                examples=["2026-11-01T00:00:00Z"],
-            ),
-        ],
-        limit: Annotated[
-            int,
-            Query(ge=1, le=20, description="Maximum events per page."),
-        ] = 20,
-        to_time: Annotated[
-            AwareDatetime | None,
-            Query(
-                alias="to",
-                description=(
-                    "Optional exclusive upper bound on event start time. "
-                    "Must include a timezone and be after from. "
-                    "Omit for no upper bound."
-                ),
-                examples=["2026-11-08T00:00:00Z"],
-            ),
-        ] = None,
-        category: Annotated[
-            list[EventCategory] | None,
-            Query(
-                description=(
-                    "Repeat category to match any selected value, for example "
-                    "category=music&category=film. Omit to include all categories."
-                ),
-            ),
-        ] = None,
-        q: Annotated[
-            str | None,
-            Query(
-                description=(
-                    "Literal, case-insensitive substring search in the title "
-                    "using Unicode case folding. Spaces are not trimmed. "
-                    "Omit or use an empty string for no search."
-                ),
-                examples=["jazz"],
-            ),
-        ] = None,
-        offset: Annotated[
-            int,
-            Query(
-                ge=0,
-                description=(
-                    "Number of matching events to skip after filtering and "
-                    "ordering. Increase by limit to request the next page."
-                ),
-            ),
-        ] = 0,
+    def query_events(
+        body: Annotated[EventQuery, Body()],
     ) -> list[EventResponse]:
-        """List events that overlap the requested time window.
+        """Search events that overlap the requested time window.
 
-        Filters are combined: time window, any selected category, and title search.
-        Results are ordered by starts_at ascending, then id ascending for ties.
-        Pagination is applied after all filters. Returns a JSON array, with no
-        total count or page envelope. An empty array means no matching events
-        remain at this offset.
+        All filters apply before pagination. Results are ordered by starts_at,
+        then id. Returns a JSON array without a count or snapshot.
+        Omitted or null IDs allow normal browsing without an ID restriction.
+        Empty IDs match none; unknown IDs are ignored and duplicates match once.
+        Requires a JSON body and Content-Type: application/json.
         """
         try:
-            time_range = TimeRange(from_time=from_time, to_time=to_time)
+            time_range = TimeRange(
+                from_time=body.from_time, to_time=body.to_time
+            )
         except ValueError as error:
             raise HTTPException(
                 status_code=422, detail="to must be after from"
             ) from error
         events = event_repository.list_upcoming(
             time_range=time_range,
-            limit=limit,
-            categories=category or (),
-            q=q,
-            offset=offset,
+            limit=body.limit,
+            categories=body.category or (),
+            q=body.q,
+            offset=body.offset,
+            event_ids=body.event_ids,
         )
-        response: list[EventResponse] = []
-        for event in events:
-            source = source_repository.get(event.source_id)
-            if source is None:
-                raise HTTPException(
-                    status_code=500,
-                    detail="event source is not configured",
-                )
-            response.append(
-                EventResponse(
-                    id=event.id,
-                    title=event.title,
-                    summary=event.summary,
-                    category=event.category,
-                    starts_at=event.starts_at,
-                    ends_at=event.ends_at,
-                    location_name=event.location_name,
-                    source_name=source.name,
-                    source_url=event.source_url,
-                )
+        return [to_event_response(event) for event in events]
+
+    def to_event_response(event: Event) -> EventResponse:
+        source = source_repository.get(event.source_id)
+        if source is None:
+            raise HTTPException(
+                status_code=500,
+                detail="event source is not configured",
             )
-        return response
+        return EventResponse(
+            id=event.id,
+            title=event.title,
+            summary=event.summary,
+            category=event.category,
+            starts_at=event.starts_at,
+            ends_at=event.ends_at,
+            location_name=event.location_name,
+            source_name=source.name,
+            source_url=event.source_url,
+        )
 
     return app

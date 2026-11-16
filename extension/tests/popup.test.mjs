@@ -16,6 +16,7 @@ let browser;
 let server;
 let browserSession;
 const requests = [];
+const requestDetails = [];
 let responseEvents = [];
 let responseHandler;
 
@@ -37,8 +38,8 @@ async function waitForExtension() {
 
 async function waitForRequest() {
   for (let attempt = 0; attempt < 50; attempt += 1) {
-    if (requests.length > 0) {
-      return requests[0];
+    if (requestDetails.length > 0) {
+      return requestDetails[0];
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
@@ -65,9 +66,20 @@ async function openPopup({ expandFilters = true } = {}) {
 }
 
 before(async () => {
-  server = createServer((request, response) => {
-    requests.push(new URL(request.url, apiBaseUrl));
-    responseHandler(request, response);
+  server = createServer(async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    const body = Buffer.concat(chunks).toString();
+    const url = new URL(request.url, apiBaseUrl);
+    assert.equal(request.method, "QUERY");
+    assert.equal(request.headers["content-type"], "application/json");
+    assert.equal(url.pathname, "/api/events");
+    assert.equal(url.search, "");
+    const parsedBody = body ? JSON.parse(body) : null;
+    assert.ok(parsedBody && typeof parsedBody === "object" && !Array.isArray(parsedBody));
+    requests.push(url);
+    requestDetails.push({ method: request.method, body: parsedBody });
+    responseHandler({ ...request, body: parsedBody }, response);
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
@@ -85,6 +97,7 @@ before(async () => {
 
 beforeEach(async () => {
   requests.length = 0;
+  requestDetails.length = 0;
   responseEvents = [];
   responseHandler = (_request, response) => respondWithJson(response);
   browser = await puppeteer.launch({
@@ -138,6 +151,387 @@ after(async () => {
   await new Promise((resolve, reject) => {
     server?.close((error) => (error ? reject(error) : resolve()));
   });
+});
+
+const favoriteEvent = {
+  id: "favorite-concert",
+  title: "City Jazz Night",
+  summary: "Live music with local artists.",
+  category: "music",
+  starts_at: "2025-04-01T18:00:00Z",
+  ends_at: null,
+  location_name: "Community Hall",
+  source_name: "Local Events",
+  source_url: "https://example.org/concert",
+};
+
+test("normal browsing sends a QUERY JSON body without favorite IDs", async () => {
+  const { popup } = await openPopup();
+  await popup.waitForFunction(() => document.querySelector("#event-list").getAttribute("aria-busy") === "false");
+  assert.deepEqual(requestDetails.at(-1), {
+    method: "QUERY",
+    body: { from: "2025-03-30T22:00:00.000Z", limit: 20, offset: 0 },
+  });
+  assert.equal(requests.at(-1).search, "");
+});
+
+test("favorites mark and unmark with durable IDs and accessible stars", async () => {
+  responseEvents = [favoriteEvent];
+  const { popup } = await openPopup({ expandFilters: false });
+  await popup.waitForSelector(".event-card");
+  assert.equal(await popup.$eval(".popup", element => element.getBoundingClientRect().width), 420);
+  assert.equal(await popup.$eval("#favorite-status", el => el.getAttribute("role")), "status");
+  assert.notEqual(await popup.$eval("#favorite-status", el => getComputedStyle(el).display), "none");
+  assert.equal(await popup.$eval(".favorite-action", el => el.getAttribute("aria-label")), "Add City Jazz Night to favorites");
+  await popup.click(".favorite-action");
+  await popup.waitForFunction(() => document.querySelector(".favorite-action").getAttribute("aria-pressed") === "true");
+  assert.deepEqual(await popup.evaluate(() => JSON.parse(localStorage.getItem("bee-there-favorites"))), [favoriteEvent.id]);
+  await popup.reload();
+  await popup.waitForSelector('.favorite-action[aria-pressed="true"]');
+  assert.equal(await popup.$eval(".favorite-action", el => el.getAttribute("aria-label")), "Remove City Jazz Night from favorites");
+  await popup.click(".favorite-action");
+  await popup.waitForFunction(() => localStorage.getItem("bee-there-favorites") === "[]");
+  assert.match(await popup.$eval("#favorite-status", el => el.textContent), /Removed/);
+});
+
+test("favorite confirmations are screen-reader-only and do not move the cards", async () => {
+  responseEvents = [favoriteEvent];
+  const { popup } = await openPopup({ expandFilters: false });
+  await popup.waitForSelector(".favorite-action");
+  const initialTop = await popup.$eval(".event-card", el => el.getBoundingClientRect().top);
+  for (const message of ["Added", "Removed"]) {
+    await popup.click(".favorite-action");
+    const announcement = await popup.$eval("#favorite-status", el => ({
+      text: el.textContent,
+      role: el.getAttribute("role"),
+      display: getComputedStyle(el).display,
+      clip: getComputedStyle(el).clipPath,
+      height: el.getBoundingClientRect().height,
+    }));
+    assert.match(announcement.text, new RegExp(message));
+    assert.equal(announcement.role, "status");
+    assert.notEqual(announcement.display, "none");
+    assert.notEqual(announcement.clip, "none");
+    assert.ok(announcement.height <= 1);
+    assert.equal(await popup.$eval(".event-card", el => el.getBoundingClientRect().top), initialTop);
+  }
+});
+
+test("favorites only sends all choices in QUERY and restores the hidden preference", async () => {
+  responseEvents = [favoriteEvent];
+  const { popup } = await openPopup();
+  await popup.waitForSelector(".favorite-action");
+  await popup.click(".favorite-action");
+  await popup.type("#title-query", "Jazz");
+  await popup.click("#category-trigger");
+  await popup.click("#category-music");
+  await popup.click("#category-menu [data-close]");
+  await popup.click("#favorites-only");
+  await popup.waitForFunction(() => document.querySelector("#event-list").getAttribute("aria-busy") === "false");
+  assert.deepEqual(requestDetails.at(-1), { method: "QUERY", body: {
+    event_ids: [favoriteEvent.id], from: "2025-03-30T22:00:00.000Z", q: "Jazz", category: ["music"], limit: 20, offset: 0,
+  }});
+  assert.equal(requests.at(-1).search, "");
+  await popup.reload();
+  await popup.waitForSelector(".event-card");
+  assert.equal(await popup.$eval("#discovery-filters", el => el.hidden), true);
+  assert.equal(await popup.$eval("#favorites-only", el => el.getAttribute("aria-pressed")), "true");
+  assert.equal(requestDetails.at(-1).method, "QUERY");
+  await popup.click("#toggle-filters");
+  await popup.click("#clear-all");
+  await popup.waitForFunction(() => document.querySelector("#event-list").getAttribute("aria-busy") === "false");
+  assert.deepEqual(requestDetails.at(-1), { method: "QUERY", body: {
+    from: "2025-03-30T22:00:00.000Z", limit: 20, offset: 0,
+  }});
+  assert.deepEqual(await popup.evaluate(() => JSON.parse(localStorage.getItem("bee-there-favorites"))), [favoriteEvent.id]);
+});
+
+test("empty favorites need no request and offer Browse events", async () => {
+  const { popup } = await openPopup();
+  await popup.waitForFunction(() => document.querySelector("#event-list").getAttribute("aria-busy") === "false");
+  const count = requests.length;
+  await popup.click("#favorites-only");
+  await popup.waitForFunction(() => document.querySelector("#event-list h3")?.textContent === "No favorites yet");
+  assert.equal(requests.length, count);
+  await popup.click("#browse-events");
+  await popup.waitForFunction(() => document.querySelector("#favorites-only").getAttribute("aria-pressed") === "false");
+  assert.equal(requestDetails.at(-1).method, "QUERY");
+  assert.equal(Object.hasOwn(requestDetails.at(-1).body, "event_ids"), false);
+});
+
+test("absent favorites retain IDs and return with fresh API details", async () => {
+  responseEvents = [favoriteEvent];
+  const { popup } = await openPopup();
+  await popup.waitForSelector(".favorite-action");
+  await popup.click(".favorite-action");
+  responseEvents = [];
+  await popup.click("#favorites-only");
+  await popup.waitForFunction(() => document.querySelector("#event-list").getAttribute("aria-busy") === "false");
+  assert.equal(await popup.$eval("#event-list h3", el => el.textContent), "No favorites available");
+  assert.equal(await popup.$eval("#browse-events", el => el.textContent), "Browse events");
+  await popup.type("#title-query", "Jazz");
+  await popup.waitForFunction(() => document.querySelector("#event-list h3")?.textContent === "No matching favorites");
+  assert.deepEqual(await popup.evaluate(() => JSON.parse(localStorage.getItem("bee-there-favorites"))), [favoriteEvent.id]);
+  responseEvents = [{ ...favoriteEvent, title: "New concert title", location_name: "New Hall" }];
+  await popup.click("#clear-query");
+  await popup.waitForSelector('.favorite-action[aria-pressed="true"]');
+  assert.equal(await popup.$eval(".event-title", el => el.textContent), "New concert title");
+  assert.equal(await popup.$eval(".event-location", el => el.textContent), "New Hall");
+});
+
+test("a favorites read failure disables actions without overwriting IDs and can retry", async () => {
+  responseEvents = [favoriteEvent];
+  const { popup } = await openPopup();
+  await popup.evaluate(() => localStorage.setItem("bee-there-favorites", JSON.stringify(["missing-id"])));
+  await popup.evaluateOnNewDocument(() => {
+    const read = Storage.prototype.getItem;
+    window.failFavoritesRead = true;
+    Storage.prototype.getItem = function(key) {
+      if (key === "bee-there-favorites" && window.failFavoritesRead) throw new Error("Read blocked");
+      return read.call(this, key);
+    };
+  });
+  await popup.reload();
+  await popup.waitForSelector(".event-card", { timeout: 2000 });
+  assert.equal(await popup.$eval(".favorite-action", el => el.disabled), true);
+  assert.equal(await popup.$eval("#favorites-only", el => el.disabled), true);
+  assert.match(await popup.$eval("#favorite-status", el => el.textContent), /Could not read favorites/);
+  assert.equal(await popup.$eval("#favorite-status", el => getComputedStyle(el).clipPath), "none");
+  await popup.evaluate(() => { window.failFavoritesRead = false; });
+  await popup.click("#retry-favorites-load");
+  await popup.waitForFunction(() => !document.querySelector(".favorite-action").disabled);
+  assert.deepEqual(await popup.evaluate(() => JSON.parse(localStorage.getItem("bee-there-favorites"))), ["missing-id"]);
+  await popup.click(".favorite-action");
+  assert.deepEqual(await popup.evaluate(() => JSON.parse(localStorage.getItem("bee-there-favorites"))), ["missing-id", favoriteEvent.id]);
+});
+
+test("a favorites write failure keeps the previous state and announces an error", async () => {
+  responseEvents = [favoriteEvent];
+  const { popup } = await openPopup();
+  await popup.waitForSelector(".favorite-action");
+  await popup.click(".favorite-action");
+  await popup.evaluate(() => {
+    const write = Storage.prototype.setItem;
+    window.failFavoritesWrite = true;
+    Storage.prototype.setItem = function(key, value) {
+      if (key === "bee-there-favorites" && window.failFavoritesWrite) throw new Error("Write blocked");
+      return write.call(this, key, value);
+    };
+  });
+  await popup.click(".favorite-action");
+  assert.match(await popup.$eval("#favorite-status", el => el.textContent), /Could not save favorites/);
+  assert.equal(await popup.$eval("#favorite-status", el => getComputedStyle(el).clipPath), "none");
+  assert.equal(await popup.$eval(".favorite-action", el => el.getAttribute("aria-pressed")), "true");
+  assert.deepEqual(await popup.evaluate(() => JSON.parse(localStorage.getItem("bee-there-favorites"))), [favoriteEvent.id]);
+  assert.doesNotMatch(await popup.$eval("#status", el => el.textContent), /Could not/);
+  await popup.evaluate(() => { window.failFavoritesWrite = false; });
+  await popup.click(".favorite-action");
+  assert.match(await popup.$eval("#favorite-status", el => el.textContent), /Removed/);
+  assert.notEqual(await popup.$eval("#favorite-status", el => getComputedStyle(el).clipPath), "none");
+});
+
+test("unmarking paginated favorites refreshes from zero and focuses the next card", async () => {
+  const events = Array.from({ length: 43 }, (_, index) => ({ ...favoriteEvent, id: `event-${index}`, title: `Concert ${index}` }));
+  responseEvents = events.slice(0, 20);
+  const { popup } = await openPopup();
+  await popup.evaluate(ids => {
+    localStorage.setItem("bee-there-favorites", JSON.stringify(ids));
+    localStorage.setItem("bee-there-discovery", JSON.stringify({ favoritesOnly: true, date: {kind: "any"} }));
+  }, events.map(event => event.id));
+  responseHandler = (_request, response) => {
+    const body = requestDetails.at(-1).body;
+    const matches = events.filter(event => body.event_ids.includes(event.id));
+    respondWithJson(response, matches.slice(body.offset, body.offset + body.limit));
+  };
+  await popup.reload();
+  await popup.waitForSelector(".event-card:nth-child(20)");
+  await popup.$eval("#results", el => { el.scrollTop = el.scrollHeight; });
+  await popup.waitForSelector(".event-card:nth-child(40)");
+  assert.equal(requestDetails.at(-1).body.offset, 20);
+  assert.equal(requestDetails.at(-1).body.event_ids.length, 43);
+  await popup.click(".event-card:nth-child(21) .favorite-action");
+  await popup.waitForFunction(() => document.querySelectorAll(".event-card").length === 20);
+  assert.equal(requestDetails.at(-1).body.offset, 0);
+  assert.equal(requestDetails.at(-1).body.event_ids.length, 42);
+  assert.equal(requestDetails.at(-1).body.event_ids.includes("event-20"), false);
+  // The next card is beyond the refreshed first page, so use the visible disclosure.
+  assert.equal(await popup.evaluate(() => document.activeElement.id), "toggle-filters");
+  await popup.click(".event-card:first-child .favorite-action");
+  await popup.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Remove Concert 1 from favorites");
+});
+
+test("a delayed unmark refresh does not steal focus from another control", async () => {
+  const nextEvent = { ...favoriteEvent, id: "next-event", title: "Next concert" };
+  responseEvents = [favoriteEvent, nextEvent];
+  const { popup } = await openPopup();
+  await popup.waitForSelector(".event-card:nth-child(2)");
+  await popup.click(".event-card:first-child .favorite-action");
+  await popup.click(".event-card:last-child .favorite-action");
+  await popup.click("#favorites-only");
+  await popup.waitForFunction(() =>
+    document.querySelector("#event-list").getAttribute("aria-busy") === "false",
+  );
+  let pendingResponse;
+  const refreshStarted = new Promise(resolve => {
+    responseHandler = (_request, response) => {
+      pendingResponse = response;
+      resolve();
+    };
+  });
+  await popup.click(".event-card:first-child .favorite-action");
+  await refreshStarted;
+  await popup.focus("#title-query");
+  respondWithJson(pendingResponse, [nextEvent]);
+  await popup.waitForFunction(() =>
+    document.querySelector("#event-list").getAttribute("aria-busy") === "false",
+  );
+  assert.equal(await popup.evaluate(() => document.activeElement.id), "title-query");
+});
+
+test("unmarking the last favorite keeps focus on a visible filter control", async () => {
+  responseEvents = [favoriteEvent];
+  const { popup } = await openPopup();
+  await popup.waitForSelector(".favorite-action");
+  await popup.click(".favorite-action");
+  await popup.click("#favorites-only");
+  await popup.waitForFunction(() => document.querySelector("#event-list").getAttribute("aria-busy") === "false");
+  await popup.click(".favorite-action");
+  await popup.waitForFunction(() => document.querySelector("#event-list h3")?.textContent === "No favorites yet");
+  assert.equal(await popup.evaluate(() => document.activeElement.id), "favorites-only");
+  assert.equal(await popup.$eval("#favorites-only", el => el.getAttribute("aria-pressed")), "true");
+});
+
+test("favorites-only request failures identify favorites and keep the choice", async () => {
+  responseEvents = [favoriteEvent];
+  const { popup } = await openPopup();
+  await popup.waitForSelector(".favorite-action");
+  await popup.click(".favorite-action");
+  responseHandler = (_request, response) => respondWithJson(response, [], 503);
+  await popup.click("#favorites-only");
+  await popup.waitForSelector("#retry");
+  assert.equal(await popup.$eval(".state h3", el => el.textContent), "Could not load favorites");
+  assert.equal(await popup.$eval("#favorites-only", el => el.getAttribute("aria-pressed")), "true");
+  assert.deepEqual(await popup.evaluate(() => JSON.parse(localStorage.getItem("bee-there-favorites"))), [favoriteEvent.id]);
+});
+
+test("favorites QUERY retries network errors with all IDs and date bounds intact", async () => {
+  responseEvents = [favoriteEvent];
+  const { popup } = await openPopup();
+  const ids = Array.from({ length: 2501 }, (_, index) => `saved-${index}`);
+  await popup.evaluate(savedIds => {
+    localStorage.setItem("bee-there-favorites", JSON.stringify(savedIds));
+    localStorage.setItem("bee-there-discovery", JSON.stringify({ favoritesOnly: true, query: "Concert", categories: ["music", "theatre"], date: { kind: "tomorrow" } }));
+  }, ids);
+  responseHandler = (_request, response) => respondWithJson(response, [], 503);
+  await popup.reload();
+  await popup.waitForSelector("#retry");
+  assert.match(await popup.$eval("#event-list h3", el => el.textContent), /Could not load favorites/);
+  const expected = { method: "QUERY", body: {
+    event_ids: ids, from: "2025-03-31T22:00:00.000Z", to: "2025-04-01T22:00:00.000Z", q: "Concert", category: ["music", "theatre"], limit: 20, offset: 0,
+  }};
+  assert.deepEqual(requestDetails.at(-1), expected);
+  responseHandler = (_request, response) => respondWithJson(response, []);
+  await popup.click("#retry");
+  await popup.waitForFunction(() => document.querySelector("#event-list h3")?.textContent === "No matching favorites");
+  assert.deepEqual(requestDetails.at(-1), expected);
+  assert.deepEqual(await popup.evaluate(() => JSON.parse(localStorage.getItem("bee-there-favorites"))), ids);
+});
+
+test("a stale favorites query cannot replace newer filter results", async () => {
+  responseEvents = [favoriteEvent];
+  const { popup } = await openPopup();
+  await popup.waitForSelector(".favorite-action");
+  await popup.click(".favorite-action");
+  let pending;
+  responseHandler = (_request, response) => { pending = response; };
+  await popup.click("#favorites-only");
+  while (!pending) await new Promise(resolve => setTimeout(resolve, 10));
+  responseHandler = (_request, response) => respondWithJson(response, []);
+  await popup.type("#title-query", "missing");
+  await popup.waitForFunction(() => document.querySelector("#event-list h3")?.textContent === "No matching favorites");
+  respondWithJson(pending, [favoriteEvent]);
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(await popup.$(".event-card"), null);
+  assert.deepEqual(await popup.evaluate(() => JSON.parse(localStorage.getItem("bee-there-favorites"))), [favoriteEvent.id]);
+});
+
+test("favorite controls fit 320px in both themes with visible keyboard focus", async () => {
+  responseEvents = [favoriteEvent];
+  const action = await openPopup({ expandFilters: false });
+  const url = action.popup.url();
+  await action.popup.close();
+  const popup = await browser.newPage();
+  await popup.setViewport({ width: 320, height: 600 });
+  await popup.goto(url);
+  await popup.waitForSelector(".favorite-action");
+  const bounds = await popup.$eval(".popup", element => {
+    const rect = element.getBoundingClientRect();
+    return { left: rect.left, right: rect.right };
+  });
+  assert.deepEqual(bounds, { left: 0, right: 320 });
+  for (const theme of ["light", "dark"]) {
+    await popup.click(`label[for="theme-${theme}"]`);
+    await popup.click("#toggle-filters");
+    await popup.focus(".favorite-action");
+    await popup.keyboard.press("Tab");
+    await popup.keyboard.down("Shift");
+    await popup.keyboard.press("Tab");
+    await popup.keyboard.up("Shift");
+    const layout = await popup.evaluate(() => {
+      const action = document.querySelector(".favorite-action");
+      const rect = action.getBoundingClientRect();
+      const filter = document.querySelector("#favorites-only");
+      return {
+        width: rect.width, height: rect.height,
+        right: rect.right, focus: getComputedStyle(action).outlineStyle,
+        overflow: document.querySelector(".popup").scrollWidth > 320,
+        filterInside: filter.closest("#discovery-filters") !== null,
+        filterWidth: filter.getBoundingClientRect().width,
+        filterGap: filter.getBoundingClientRect().top - document.querySelector(".filter-row").getBoundingClientRect().bottom,
+        fill: getComputedStyle(action.querySelector("svg")).fill,
+      };
+    });
+    assert.ok(layout.width >= 36 && layout.height >= 36);
+    assert.ok(layout.right <= 320);
+    assert.notEqual(layout.focus, "none");
+    assert.equal(layout.overflow, false);
+    assert.equal(layout.filterInside, true);
+    assert.ok(layout.filterWidth > 250);
+    assert.ok(layout.filterGap >= 8, "Favorites is separated from category and date controls");
+    const wasMarked = await popup.$eval(".favorite-action", el => el.getAttribute("aria-pressed") === "true");
+    assert.equal(layout.fill === "none", !wasMarked);
+    await popup.click(".favorite-action");
+    assert.equal(await popup.$eval(".favorite-action svg", el => getComputedStyle(el).fill === "none"), wasMarked);
+    await popup.click("#toggle-filters");
+  }
+});
+
+test("a saved favorites-only view waits for storage recovery before querying", async () => {
+  responseEvents = [favoriteEvent];
+  const { popup } = await openPopup();
+  await popup.evaluate(id => {
+    localStorage.setItem("bee-there-favorites", JSON.stringify([id]));
+    localStorage.setItem("bee-there-discovery", JSON.stringify({ favoritesOnly: true }));
+  }, favoriteEvent.id);
+  await popup.evaluateOnNewDocument(() => {
+    const read = Storage.prototype.getItem;
+    window.failFavoritesRead = true;
+    Storage.prototype.getItem = function(key) {
+      if (key === "bee-there-favorites" && window.failFavoritesRead) throw new Error("Read blocked");
+      return read.call(this, key);
+    };
+  });
+  const count = requests.length;
+  await popup.reload();
+  await popup.waitForSelector("#retry-favorites-load");
+  assert.equal(requests.length, count);
+  assert.match(await popup.$eval("#status", el => el.textContent), /Favorites unavailable/);
+  assert.equal(await popup.$eval("#favorites-only", el => el.getAttribute("aria-pressed")), "true");
+  await popup.evaluate(() => { window.failFavoritesRead = false; });
+  await popup.click("#retry-favorites-load");
+  await popup.waitForSelector('.favorite-action[aria-pressed="true"]');
+  assert.equal(requestDetails.at(-1).method, "QUERY");
+  assert.deepEqual(requestDetails.at(-1).body.event_ids, [favoriteEvent.id]);
 });
 
 test("a plain text button shows and hides filters without loading results", async () => {
@@ -294,9 +688,9 @@ test("restored filters start hidden and Clear all keeps focus on a visible contr
     await popup.$eval("#toggle-filters", (el) => el.textContent.trim()),
     "Show filters",
   );
-  assert.equal(requests.at(-1).searchParams.get("q"), "jazz");
-  assert.deepEqual(requests.at(-1).searchParams.getAll("category"), ["music"]);
-  assert.equal(requests.at(-1).searchParams.get("to"), "2025-04-01T22:00:00.000Z");
+  assert.equal(requestDetails.at(-1).body.q, "jazz");
+  assert.deepEqual(requestDetails.at(-1).body.category, ["music"]);
+  assert.equal(requestDetails.at(-1).body.to, "2025-04-01T22:00:00.000Z");
   await popup.click("#clear-all");
   await popup.waitForFunction(
     () =>
@@ -311,9 +705,9 @@ test("restored filters start hidden and Clear all keeps focus on a visible contr
     await popup.evaluate(() => document.activeElement.id),
     "toggle-filters",
   );
-  assert.equal(requests.at(-1).searchParams.has("q"), false);
-  assert.equal(requests.at(-1).searchParams.has("category"), false);
-  assert.equal(requests.at(-1).searchParams.has("to"), false);
+  assert.deepEqual(requestDetails.at(-1).body, {
+    from: "2025-03-30T22:00:00.000Z", limit: 20, offset: 0,
+  });
   await popup.click("#toggle-filters");
   assert.equal(
     await popup.$eval("#title-query", (el) => el.value),
@@ -810,15 +1204,13 @@ test("the popup requests events from the start of today in Belgrade", async () =
 
   const request = await waitForRequest();
   assert.ok(request, "The popup did not request events");
-  assert.equal(request.pathname, "/api/events");
-  assert.deepEqual(
-    [...request.searchParams],
-    [
-      ["from", "2025-03-30T22:00:00.000Z"],
-      ["limit", "20"],
-      ["offset", "0"],
-    ],
-  );
+  assert.equal(requests[0].origin, apiBaseUrl);
+  assert.equal(requests[0].pathname, "/api/events");
+  assert.equal(requests[0].search, "");
+  assert.equal(request.method, "QUERY");
+  assert.deepEqual(request.body, {
+    from: "2025-03-30T22:00:00.000Z", limit: 20, offset: 0,
+  });
   await popup.close();
   await triggerPage.close();
 });
@@ -915,14 +1307,14 @@ test("title search sends a server query and preserves focus", async () => {
     () => document.querySelector("#status").textContent !== "Loading events…",
   );
   await new Promise((resolve) => setTimeout(resolve, 250));
-  assert.equal(requests.at(-1).searchParams.get("q"), "Jazz");
+  assert.equal(requestDetails.at(-1).body.q, "Jazz");
   assert.equal(
     await popup.evaluate(() => document.activeElement.id),
     "title-query",
   );
   await popup.click("#clear-query");
   await new Promise((resolve) => setTimeout(resolve, 150));
-  assert.equal(requests.at(-1).searchParams.has("q"), false);
+  assert.equal(Object.hasOwn(requestDetails.at(-1).body, "q"), false);
 });
 
 test("category checkboxes combine with search, stay open, and reset separately", async () => {
@@ -937,11 +1329,11 @@ test("category checkboxes combine with search, stay open, and reset separately",
   await popup.click("#category-music");
   await popup.click("#category-theatre");
   await new Promise((resolve) => setTimeout(resolve, 150));
-  assert.deepEqual(requests.at(-1).searchParams.getAll("category").sort(), [
+  assert.deepEqual(requestDetails.at(-1).body.category.toSorted(), [
     "music",
     "theatre",
   ]);
-  assert.equal(requests.at(-1).searchParams.get("q"), "jazz");
+  assert.equal(requestDetails.at(-1).body.q, "jazz");
   assert.equal(await popup.$eval("#category-menu", (el) => el.hidden), false);
   await popup.keyboard.press("Escape");
   assert.equal(
@@ -950,9 +1342,7 @@ test("category checkboxes combine with search, stay open, and reset separately",
   );
   await popup.click('[aria-label="Remove Music category"]');
   await new Promise((resolve) => setTimeout(resolve, 100));
-  assert.deepEqual(requests.at(-1).searchParams.getAll("category"), [
-    "theatre",
-  ]);
+  assert.deepEqual(requestDetails.at(-1).body.category, ["theatre"]);
 });
 
 test("date presets and custom inclusive dates retain the last valid choice", async () => {
@@ -980,11 +1370,11 @@ test("date presets and custom inclusive dates retain the last valid choice", asy
   );
   await new Promise((resolve) => setTimeout(resolve, 100));
   assert.equal(
-    requests.at(-1).searchParams.get("from"),
+    requestDetails.at(-1).body.from,
     "2025-03-31T22:00:00.000Z",
   );
   assert.equal(
-    requests.at(-1).searchParams.get("to"),
+    requestDetails.at(-1).body.to,
     "2025-04-01T22:00:00.000Z",
   );
   await popup.click("#date-trigger");
@@ -1002,14 +1392,14 @@ test("date presets and custom inclusive dates retain the last valid choice", asy
   );
   await new Promise((resolve) => setTimeout(resolve, 100));
   assert.equal(
-    requests.at(-1).searchParams.get("from"),
+    requestDetails.at(-1).body.from,
     "2025-04-01T22:00:00.000Z",
   );
   await popup.click("#mode-range");
   await popup.type("#custom-end", "05 Apr 2025");
   await new Promise((resolve) => setTimeout(resolve, 100));
   assert.equal(
-    requests.at(-1).searchParams.get("to"),
+    requestDetails.at(-1).body.to,
     "2025-04-05T22:00:00.000Z",
   );
   const validRequestCount = requests.length;
@@ -1068,7 +1458,7 @@ test("custom calendar blocks past days and supports arrows and month keys", asyn
   await popup.keyboard.press("Enter");
   await new Promise((resolve) => setTimeout(resolve, 100));
   assert.equal(
-    requests.at(-1).searchParams.get("from"),
+    requestDetails.at(-1).body.from,
     "2025-04-30T22:00:00.000Z",
   );
 });
@@ -1099,9 +1489,9 @@ test("discovery choices persist and Clear all leaves theme unchanged", async () 
   );
   await reopened.popup.click("#clear-all");
   await new Promise((resolve) => setTimeout(resolve, 100));
-  assert.equal(requests.at(-1).searchParams.has("q"), false);
-  assert.equal(requests.at(-1).searchParams.has("category"), false);
-  assert.equal(requests.at(-1).searchParams.has("to"), false);
+  assert.deepEqual(requestDetails.at(-1).body, {
+    from: "2025-03-30T22:00:00.000Z", limit: 20, offset: 0,
+  });
   assert.equal(
     await reopened.popup.evaluate(() =>
       localStorage.getItem("bee-there-theme"),
@@ -1119,7 +1509,7 @@ test("saved custom dates clamp or expire without clearing other filters", async 
       "2025-04-03T22:00:00.000Z",
       /range now starts today/,
     ],
-    ["2025-03-29", "2025-03-30T22:00:00.000Z", null, /saved dates have passed/],
+    ["2025-03-29", "2025-03-30T22:00:00.000Z", undefined, /saved dates have passed/],
   ]) {
     await popup.evaluate(
       (end) =>
@@ -1139,10 +1529,10 @@ test("saved custom dates clamp or expire without clearing other filters", async 
         document.querySelector("#event-list").getAttribute("aria-busy") ===
         "false",
     );
-    assert.equal(requests.at(-1).searchParams.get("from"), expectedFrom);
-    assert.equal(requests.at(-1).searchParams.get("to"), expectedTo);
-    assert.equal(requests.at(-1).searchParams.get("q"), "Jazz");
-    assert.deepEqual(requests.at(-1).searchParams.getAll("category"), [
+    assert.equal(requestDetails.at(-1).body.from, expectedFrom);
+    assert.equal(requestDetails.at(-1).body.to, expectedTo);
+    assert.equal(requestDetails.at(-1).body.q, "Jazz");
+    assert.deepEqual(requestDetails.at(-1).body.category, [
       "music",
     ]);
     assert.match(
@@ -1155,7 +1545,7 @@ test("saved custom dates clamp or expire without clearing other filters", async 
 test("superseded results cannot replace the latest search", async () => {
   let oldResponse;
   responseHandler = (request, response) => {
-    const query = new URL(request.url, apiBaseUrl).searchParams.get("q");
+    const query = request.body.q;
     if (query === "old") oldResponse = response;
     else respondWithJson(response);
   };
@@ -1204,9 +1594,7 @@ test("infinite scroll loads every page and retries without losing earlier matche
   });
   let failNext = true;
   responseHandler = (request, response) => {
-    const offset = Number(
-      new URL(request.url, apiBaseUrl).searchParams.get("offset") || 0,
-    );
+    const offset = request.body.offset;
     if (offset === 20 && failNext) {
       failNext = false;
       respondWithJson(response, [], 503);
@@ -1239,10 +1627,10 @@ test("infinite scroll loads every page and retries without losing earlier matche
     () => document.querySelectorAll(".event-card").length === 43,
   );
   assert.deepEqual(
-    requests.map((url) => url.searchParams.get("offset")),
-    ["0", "20", "20", "40"],
+    requestDetails.map(({ body }) => body.offset),
+    [0, 20, 20, 40],
   );
-  assert.equal(requests[0].searchParams.get("limit"), "20");
+  assert.equal(requestDetails[0].body.limit, 20);
   const positions = await popup.evaluate(() => ({
     shellScroll: document.querySelector(".popup").scrollTop,
     controlsTop: document.querySelector("#title-query").getBoundingClientRect()

@@ -142,13 +142,25 @@ class EventCatalog(Protocol):
 
 ## 8. API and extension
 
-Initial read-only HTTP endpoint:
+Read-only event searches use QUERY with a JSON body:
 
 ```http
-GET /api/events?from=2026-10-23&limit=20
+QUERY /api/events HTTP/1.1
+Content-Type: application/json
+
+{"from":"2026-10-23T00:00:00Z","limit":20}
 ```
 
-Response fields: `id`, `title`, `summary`, `starts_at`, `ends_at`, `location_name`, `source_name`, `source_url`.
+`from` is required and must include a timezone. Optional `event_ids` is an array
+of UUID strings. Omit it or use `null` for unrestricted browsing; `[]` matches
+no events. Other optional filters are `to`, `category` (an array), and `q`.
+Omitted or null filters apply no restriction. Empty `category` and `q` also
+apply no restriction. Pagination uses `limit` (1–20, default 20) and `offset`
+(nonnegative, default 0). Filters apply before ordering by `starts_at`, then
+`id`, and pagination. GET on `/api/events` returns 405; health and API reference
+pages remain available through GET.
+
+Response fields: `id`, `title`, `summary`, `category`, `starts_at`, `ends_at`, `location_name`, `source_name`, `source_url`.
 
 The browser extension is intentionally thin: fetch, display, sort/filter upcoming listings, and open original sources. Do not duplicate backend normalization or deduplication rules in the extension.
 

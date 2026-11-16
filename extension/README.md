@@ -40,9 +40,37 @@ both dates and overlapping events. Use `DD MMM YYYY` in date fields. Calendar
 arrow keys move by day or week; Page Up and Page Down change months. Past dates
 cannot be selected. Invalid or incomplete dates keep the last applied choice.
 
-The extension saves the query, categories, and applied date locally. Relative
-dates recalculate when opened. Partly expired custom ranges start today; wholly
-expired dates reset with a notice. Clear all does not change the theme.
+Search, categories, dates, and Favorites only are inside **Show filters**.
+They start hidden. Hiding filters does not stop them from applying.
+The extension saves these choices locally. Relative dates recalculate when
+opened. Partly expired custom ranges start today; wholly expired dates reset
+with a notice. Clear all resets these choices, including Favorites only. It
+does not remove marked favorites or change the theme.
+
+## Favorites
+
+Use the star on any event card to add or remove a favorite. The star is always
+visible. An outline means not marked; a filled star means marked. Open
+**Show filters** and turn **Favorites only** on to browse marked events with the
+same search, categories, and dates.
+
+Only event IDs are saved in local browser storage (`bee-there-favorites`).
+There are no saved event snapshots, accounts, sync, added permissions, or
+artificial favorite limits. Event details always come from the API. Missing
+or past events stay marked. If the same ID returns, it is still a favorite.
+Clearing browser or extension storage removes these local choices.
+
+All event searches use `QUERY /api/events` with a JSON body containing
+`from`, optional `to`, `q`, and `category` (an array), plus `limit` and `offset`.
+Normal browsing omits `event_ids`. Favorites-only searches include all marked
+IDs in `event_ids`; pages contain 20 results. No request is needed when
+Favorites only is on and there are no marked IDs.
+
+Empty states distinguish no saved favorites, no upcoming favorites available,
+and no favorites matching the current filters. Network errors offer retry and
+keep choices. A storage read error disables favorite actions until a successful
+retry; it never replaces saved IDs. A write error keeps the previous state and
+announces the failure. Favorite announcements are separate from result errors.
 
 ## Test
 
@@ -56,6 +84,9 @@ test starts the real backend, extracts the generated ZIP, installs that clean
 bundle, and completes the upcoming-events journey. Discovery tests also check
 real-server title matching, category OR, overlapping dates, and all result pages.
 Pure date tests cover Belgrade day boundaries across both DST changes.
+Favorites unit and browser tests cover local IDs, storage failures, QUERY
+bodies and pagination, fresh returning details, focus, and narrow layouts in
+both themes.
 
 ## Create a Chrome release
 

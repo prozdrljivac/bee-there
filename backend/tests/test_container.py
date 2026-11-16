@@ -8,7 +8,7 @@ from pathlib import Path
 from time import monotonic, sleep
 from unittest.mock import MagicMock, Mock
 from urllib.error import URLError
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 from uuid import uuid4
 
 import pytest
@@ -134,7 +134,12 @@ with sqlite3.connect("/data/bee-there.sqlite3") as db:
             base_url = f"http://127.0.0.1:{port}"
             _wait_for_health(base_url, container)
             with urlopen(
-                f"{base_url}/api/events?from=2026-10-26T00:00:00%2B00:00",
+                Request(
+                    f"{base_url}/api/events",
+                    data=json.dumps({"from": "2026-10-26T00:00:00Z"}).encode(),
+                    headers={"Content-Type": "application/json"},
+                    method="QUERY",
+                ),
                 timeout=5,
             ) as response:
                 assert response.status == 200

@@ -217,18 +217,108 @@ def test_api_filters_real_events_before_pagination(
     )
 
     with TestClient(app) as client:
-        response = client.get(
+        response = client.request(
+            "QUERY",
             "/api/events",
-            params=[
-                ("from", "2026-11-05T00:00:00Z"),
-                ("to", "2026-11-07T00:00:00Z"),
-                ("category", "music"),
-                ("category", "film"),
-                ("q", "PaRtY"),
-                ("offset", "1"),
-                ("limit", "1"),
-            ],
+            json={
+                "from": "2026-11-05T00:00:00Z",
+                "to": "2026-11-07T00:00:00Z",
+                "category": ["music", "film"],
+                "q": "PaRtY",
+                "offset": 1,
+                "limit": 1,
+            },
         )
 
     assert response.status_code == 200
     assert [event["title"] for event in response.json()] == ["party film"]
+
+
+def test_id_filter_ignores_unknown_and_duplicate_ids(
+    repository: SQLiteEventRepository, tmp_path: Path
+) -> None:
+    add_event(repository, tmp_path, title="Selected")
+    add_event(repository, tmp_path, title="Not selected")
+    selected = repository.list_upcoming(time_range=TimeRange(at(5)))[0]
+
+    events = repository.list_upcoming(
+        time_range=TimeRange(at(5)),
+        event_ids=[selected.id, uuid4(), selected.id],
+    )
+
+    assert events == [selected]
+
+
+@pytest.mark.parametrize("q", [None, "NIGHT"])
+def test_query_ids_combine_with_filters_before_stable_pagination(
+    repository: SQLiteEventRepository, tmp_path: Path, q: str | None
+) -> None:
+    ids = iter(UUID(int=value) for value in range(100, 0, -1))
+    repository = SQLiteEventRepository(
+        tmp_path / "events.sqlite3", id_factory=lambda: next(ids)
+    )
+    for index in range(45):
+        add_event(repository, tmp_path, title=f"Night {index}")
+    matching = repository.list_upcoming(time_range=TimeRange(at(5)), limit=100)
+    for title, category, start, end in [
+        ("Night past", EventCategory.MUSIC, at(1), at(5)),
+        ("Night late", EventCategory.MUSIC, at(7), None),
+        ("Night other", EventCategory.OTHER, at(5), None),
+    ]:
+        add_event(
+            repository,
+            tmp_path,
+            title=title,
+            category=category,
+            starts_at=start,
+            ends_at=end,
+        )
+    # Select excluded events too, so IDs alone cannot satisfy the query.
+    all_events = repository.list_upcoming(
+        time_range=TimeRange(at(1)), limit=100
+    )
+    event_ids = [str(event.id) for event in all_events]
+    event_ids += [event_ids[0], str(uuid4())]
+    add_event(
+        repository,
+        tmp_path,
+        title="Night not selected",
+        starts_at=at(4),
+        ends_at=at(6),
+    )
+    app = create_app(
+        repository, SQLiteSourceRepository(tmp_path / "events.sqlite3")
+    )
+    with TestClient(app) as client:
+        actual: list[str] = []
+        for offset in (0, 20, 40, 60):
+            response = client.request(
+                "QUERY",
+                "/api/events",
+                json={
+                    "event_ids": event_ids,
+                    "from": "2026-11-05T00:00:00Z",
+                    "to": "2026-11-07T00:00:00Z",
+                    "category": ["music", "film"],
+                    "q": q,
+                    "offset": offset,
+                },
+            )
+            assert response.status_code == 200
+            page = response.json()
+            assert len(page) == len(matching[offset : offset + 20])
+            actual.extend(event["id"] for event in page)
+    assert actual == [str(event.id) for event in matching]
+
+
+@pytest.mark.parametrize("event_ids", [[], [UUID(int=999)]])
+def test_id_filter_matches_no_events_for_empty_or_unknown_ids(
+    repository: SQLiteEventRepository, tmp_path: Path, event_ids: list[UUID]
+) -> None:
+    add_event(repository, tmp_path)
+    assert (
+        repository.list_upcoming(
+            time_range=TimeRange(at(5)), event_ids=event_ids
+        )
+        == []
+    )

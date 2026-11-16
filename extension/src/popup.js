@@ -1,6 +1,16 @@
 import { API_BASE_URL } from "./config.js";
 import { dateBounds, today, parseDay, formatDay } from "./discovery-dates.js";
 import { createDatePicker } from "./date-picker.js";
+import { loadFavorites, writeFavorites } from "./favorites.js";
+
+let favoriteIds = new Set();
+let favoritesAvailable = false;
+let favoritesOnly = false;
+const favoriteStatus = document.createElement("p");
+favoriteStatus.id = "favorite-status";
+favoriteStatus.className = "visually-hidden";
+favoriteStatus.setAttribute("role", "status");
+document.querySelector("#discovery-notice").after(favoriteStatus);
 
 const EVENT_TIME_ZONE = "Europe/Belgrade";
 const EVENT_CATEGORIES = new Set([
@@ -106,6 +116,95 @@ function locationIcon() {
   return icon;
 }
 
+function starIcon() {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute(
+    "d",
+    "m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z",
+  );
+  icon.append(path);
+  return icon;
+}
+
+function updateFavoriteAction(button, event) {
+  button.disabled = !favoritesAvailable;
+  const marked = favoriteIds.has(event.id);
+  button.setAttribute("aria-pressed", String(marked));
+  button.setAttribute(
+    "aria-label",
+    marked
+      ? `Remove ${event.title} from favorites`
+      : `Add ${event.title} to favorites`,
+  );
+}
+
+function loadSavedFavorites() {
+  try {
+    favoriteIds = loadFavorites();
+    favoritesAvailable = true;
+    favoriteStatus.classList.add("visually-hidden");
+    favoriteStatus.textContent = "";
+  } catch {
+    favoritesAvailable = false;
+    favoriteStatus.classList.remove("visually-hidden");
+    favoriteStatus.textContent =
+      "Could not read favorites. Saved favorites have not been changed. ";
+    const retry = textElement("button", "", "Retry favorites");
+    retry.id = "retry-favorites-load";
+    retry.type = "button";
+    retry.addEventListener("click", () => {
+      if (loadSavedFavorites()) {
+        (discoveryFilters.hidden ? filtersToggle : favoritesFilter).focus();
+        void requestEvents();
+      }
+    });
+    favoriteStatus.append(retry);
+  }
+  favoritesFilter.disabled = !favoritesAvailable;
+  return favoritesAvailable;
+}
+
+function favoriteAction(event) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "favorite-action";
+  button.dataset.eventId = event.id;
+  button.append(starIcon());
+  updateFavoriteAction(button, event);
+  button.addEventListener("click", () => toggleFavorite(event, button));
+  return button;
+}
+
+function toggleFavorite(event, button) {
+  if (!favoritesAvailable) return;
+  const next = new Set(favoriteIds);
+  if (next.has(event.id)) next.delete(event.id);
+  else next.add(event.id);
+  try {
+    writeFavorites(next);
+  } catch {
+    favoriteStatus.classList.remove("visually-hidden");
+    favoriteStatus.textContent =
+      "Could not save favorites. Your previous favorites have been kept. Try the star again.";
+    return;
+  }
+  favoriteIds = next;
+  updateFavoriteAction(button, event);
+  favoriteStatus.classList.add("visually-hidden");
+  favoriteStatus.textContent = favoriteIds.has(event.id)
+    ? `Added ${event.title} to favorites.`
+    : `Removed ${event.title} from favorites.`;
+  if (favoritesOnly) {
+    const nextId =
+      button.closest(".event-card").nextElementSibling
+        ?.querySelector(".favorite-action")?.dataset.eventId ?? "";
+    void requestEvents(false, nextId);
+  }
+}
+
 function renderEvent(event) {
   const start = new Date(event.starts_at);
   const card = document.createElement("article");
@@ -130,6 +229,8 @@ function renderEvent(event) {
       event.category.toUpperCase(),
     ),
   );
+
+  top.append(favoriteAction(event));
 
   const time = document.createElement("time");
   time.className = "time";
@@ -228,6 +329,8 @@ function hasFilters() {
 }
 
 function clearAllChoices() {
+  favoritesOnly = false;
+  updateFavoritesFilter();
   queryInput.value = "";
   clearQuery.hidden = true;
   selectedCategories.clear();
@@ -237,28 +340,70 @@ function clearAllChoices() {
   void requestEvents();
 }
 
+function browseEvents() {
+  favoritesOnly = false;
+  updateFavoritesFilter();
+  (discoveryFilters.hidden ? filtersToggle : favoritesFilter).focus();
+  void requestEvents();
+}
+
+function browseEventsAction() {
+  const button = textElement("button", "", "Browse events");
+  button.id = "browse-events";
+  button.type = "button";
+  button.addEventListener("click", browseEvents);
+  return button;
+}
+
+function showEmptyFavorites(status, eventList) {
+  status.className = "";
+  status.textContent = "0 favorites";
+  const state = stateElement(
+    "",
+    "No favorites yet",
+    "Use the star on an event to keep it here.",
+  );
+  state.append(browseEventsAction());
+  eventList.replaceChildren(state);
+}
+
+function emptyResultTitle(filtered) {
+  if (favoritesOnly) {
+    return filtered ? "No matching favorites" : "No favorites available";
+  }
+  return filtered ? "No matching events" : "No upcoming events";
+}
+
 function showEmpty(status, eventList) {
+  if (favoritesOnly && !favoriteIds.size) {
+    showEmptyFavorites(status, eventList);
+    return;
+  }
   const filtered = hasFilters();
   status.className = "";
   status.textContent = filtered ? "0 events" : "No upcoming events.";
   const state = stateElement(
     "",
-    filtered ? "No matching events" : "No upcoming events",
+    emptyResultTitle(filtered),
     filtered
       ? "Try another title or remove a filter. Your current choices have been kept."
-      : "No upcoming events right now. Come back soon for your next good plan.",
+      : favoritesOnly
+        ? "Your favorites are saved. None are available for upcoming dates right now."
+        : "No upcoming events right now. Come back soon for your next good plan.",
   );
   if (filtered) {
     const clear = textElement("button", "", "Clear all filters");
     clear.type = "button";
     clear.addEventListener("click", clearAllChoices);
     state.append(clear);
+  } else if (favoritesOnly) {
+    state.append(browseEventsAction());
   }
   eventList.replaceChildren(state);
 }
 
 function showError(status, eventList) {
-  const filtered = hasFilters();
+  const filtered = hasFilters() || favoritesOnly;
   const version = requestVersion;
   status.className = "";
   status.textContent = filtered
@@ -266,7 +411,11 @@ function showError(status, eventList) {
     : "Could not load events.";
   const state = stateElement(
     "",
-    filtered ? "Could not load events" : "A small bump in the road.",
+    favoritesOnly
+      ? "Could not load favorites"
+      : filtered
+        ? "Could not load events"
+        : "A small bump in the road.",
     filtered
       ? "Your search and filters are still here. Check your connection and try again."
       : "We could not load the events. Please try again.",
@@ -289,6 +438,7 @@ function persistChoices() {
         query: queryInput.value,
         categories: [...selectedCategories],
         date: datePicker.choice,
+        favoritesOnly,
       }),
     );
   } catch {
@@ -297,7 +447,8 @@ function persistChoices() {
   document.querySelector("#clear-all").hidden =
     !queryInput.value &&
     !selectedCategories.size &&
-    datePicker.choice.kind === "any";
+    datePicker.choice.kind === "any" &&
+    !favoritesOnly;
 }
 
 const PAGE_SIZE = 20;
@@ -323,18 +474,6 @@ const pageObserver = new IntersectionObserver(
   { root: results, rootMargin: "80px" },
 );
 
-function eventRequestUrl(offset) {
-  const url = new URL("/api/events", API_BASE_URL);
-  for (const [key, value] of Object.entries(dateBounds(datePicker.choice)))
-    url.searchParams.set(key, value);
-  if (queryInput.value) url.searchParams.set("q", queryInput.value);
-  for (const category of selectedCategories)
-    url.searchParams.append("category", category);
-  url.searchParams.set("limit", String(PAGE_SIZE));
-  url.searchParams.set("offset", String(offset));
-  return url;
-}
-
 function showPageError(version) {
   pageStatus.textContent = "Could not load more events.";
   const retry = textElement("button", "", "Try again");
@@ -346,8 +485,25 @@ function showPageError(version) {
   pageStatus.append(retry);
 }
 
+function eventQueryBody(offset) {
+  return {
+    ...(favoritesOnly ? { event_ids: [...favoriteIds] } : {}),
+    ...dateBounds(datePicker.choice),
+    ...(queryInput.value ? { q: queryInput.value } : {}),
+    ...(selectedCategories.size ? { category: [...selectedCategories] } : {}),
+    limit: PAGE_SIZE,
+    offset,
+  };
+}
+
 async function fetchEventPage(offset, signal) {
-  const response = await fetch(eventRequestUrl(offset), { signal });
+  if (favoritesOnly && favoriteIds.size === 0) return [];
+  const response = await fetch(new URL("/api/events", API_BASE_URL), {
+    method: "QUERY",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(eventQueryBody(offset)),
+    signal,
+  });
   if (!response.ok) {
     throw new Error(`Event request failed with status ${response.status}`);
   }
@@ -364,7 +520,14 @@ function enableEventList(eventList) {
   eventList.classList.remove("updating");
 }
 
-async function requestEvents(append = false) {
+function restoreFavoriteFocus(nextId) {
+  const next = [...document.querySelectorAll(".favorite-action")].find(
+    (button) => button.dataset.eventId === nextId,
+  );
+  (next ?? (discoveryFilters.hidden ? filtersToggle : favoritesFilter)).focus();
+}
+
+async function requestEvents(append = false, focusId) {
   if (append && (loadingPage || !hasMore)) return;
   if (!append) {
     ++requestVersion;
@@ -388,6 +551,13 @@ async function requestEvents(append = false) {
   else showLoading(status, eventList);
 
   try {
+    if (favoritesOnly && !favoritesAvailable) {
+      enableEventList(eventList);
+      status.textContent =
+        "Favorites unavailable. Retry reading your saved favorites above.";
+      eventList.replaceChildren();
+      return;
+    }
     const events = await fetchEventPage(offset, activeRequest.signal);
     if (version !== requestVersion) return;
     nextOffset = offset + events.length;
@@ -411,6 +581,9 @@ async function requestEvents(append = false) {
     if (version === requestVersion) {
       loadingPage = false;
       if (hasMore && !pageFailed) pageObserver.observe(sentinel);
+      if (focusId !== undefined && document.activeElement === document.body) {
+        restoreFavoriteFocus(focusId);
+      }
     }
   }
 }
@@ -528,6 +701,19 @@ const datePicker = createDatePicker(
   () => void requestEvents(),
   () => closeCategories(),
 );
+const favoritesFilter = document.querySelector("#favorites-only");
+favoritesFilter.prepend(starIcon());
+function updateFavoritesFilter() {
+  favoritesFilter.setAttribute("aria-pressed", String(favoritesOnly));
+  document.querySelector("#favorites-state").textContent = favoritesOnly
+    ? "On"
+    : "Off";
+}
+favoritesFilter.addEventListener("click", () => {
+  favoritesOnly = !favoritesOnly;
+  updateFavoritesFilter();
+  void requestEvents();
+});
 const filtersToggle = document.querySelector("#toggle-filters");
 const discoveryFilters = document.querySelector("#discovery-filters");
 filtersToggle.addEventListener("click", () => {
@@ -554,6 +740,7 @@ clearQuery.addEventListener("click", () => {
 document.querySelector("#clear-all").addEventListener("click", clearAllChoices);
 try {
   const saved = JSON.parse(localStorage.getItem("bee-there-discovery"));
+  favoritesOnly = saved?.favoritesOnly === true;
   if (saved && typeof saved.query === "string") queryInput.value = saved.query;
   if (Array.isArray(saved?.categories)) {
     for (const category of saved.categories)
@@ -583,5 +770,7 @@ try {
   /* Ignore invalid or unavailable local preferences. */
 }
 clearQuery.hidden = !queryInput.value;
+updateFavoritesFilter();
 updateCategories();
+loadSavedFavorites();
 void requestEvents();
