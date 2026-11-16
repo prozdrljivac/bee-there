@@ -1,5 +1,16 @@
 # Agent Instructions
 
+## Linear Workflow
+
+- Linear is the source of truth for tasks. Do not maintain a separate task list in this repository.
+- Read and follow `.agents/skills/linear-tickets/SKILL.md` when creating, rewriting, or reviewing Linear tickets.
+- Use the [BeeThere project](https://linear.app/petar-personal/project/beethere-482ab7f79c62) (project ID: `P-PET-6`) in the Petar Personal team (team key: `PET`).
+- Before implementation, find the matching Linear issue or create one in BeeThere under team PET. Check for duplicates before creating an issue.
+- After implementation, move the issue to review. Mark it done only after the user approves the work.
+- If Linear is unavailable, report the problem. Do not silently create a local replacement.
+- Discussion and quick questions do not require an issue.
+- Use the personal Pi MCP setup for Linear access. Do not store credentials in this repository.
+
 ## Code Readability and Simplicity
 
 - Code must be simple and easy to read. Passing tests alone is not enough.
