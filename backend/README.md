@@ -14,6 +14,19 @@ uv run uvicorn main:app --app-dir src
 The application uses `bee-there.sqlite3` by default. Set
 `BEE_THERE_DATABASE_PATH` to use another database file.
 
+## Internal API reference
+
+With the API running locally, open [Swagger UI](http://127.0.0.1:8000/docs)
+for the interactive reference, or [ReDoc](http://127.0.0.1:8000/redoc) for a
+reading view. The [OpenAPI schema](http://127.0.0.1:8000/openapi.json) is generated
+from the running application's routes, query definitions, and response models.
+No separate documentation build or checked-in schema is needed.
+
+Use this reference for event filters, date bounds, search, ordering, pagination,
+response fields, and errors. Keep API details in the route and model definitions
+so the reference changes with the API. The links above use the default local
+address; use your API's base URL when running elsewhere.
+
 ## Production container
 
 Build from the repository root. The build installs only locked runtime
@@ -48,11 +61,9 @@ curl --fail http://127.0.0.1:8000/health
 ```
 
 Run the `docker run` command in one terminal and `curl` in another.
-`GET /health` returns `200` with `{"status":"ok"}`. It checks only whether the
-application can respond. It does not access SQLite or external services and
-does not verify migrations or database readiness. Apply migrations before
-starting the API. Kubernetes can use this route for process startup, readiness,
-and liveness probes; database checks must be handled separately.
+Use `/health` for process probes, not database readiness. See the generated
+API reference for its response and limits. Apply migrations before starting
+the API; handle database readiness checks separately.
 
 Run ingestion as a separate job, not during API startup:
 
