@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import puppeteer from "puppeteer";
+import puppeteer, { TargetCloseError } from "puppeteer";
 
 const extensionDirectory = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -103,7 +103,10 @@ beforeEach(async () => {
   browser = await puppeteer.launch({
     enableExtensions: [distributionDirectory],
     headless: true,
-    args: ["--window-size=1280,1000"],
+    args: [
+      "--window-size=1280,1000",
+      "--host-resolver-rules=MAP calendar.google.com ~NOTFOUND",
+    ],
   });
   browserSession = await browser.target().createCDPSession();
   browserSession.on("Target.attachedToTarget", (event) => {
@@ -164,6 +167,200 @@ const favoriteEvent = {
   source_name: "Local Events",
   source_url: "https://example.org/concert",
 };
+
+test("the calendar icon hands its all-day draft to a new tab on the first click", async () => {
+  responseEvents = [favoriteEvent];
+  const { popup } = await openPopup({ expandFilters: false });
+  await popup.waitForSelector(".calendar-action");
+  const link = await popup.$eval(".calendar-action", el => el.href);
+  // A toolbar popup can close as the new tab opens. Do not leave that tab paused.
+  await browserSession.send("Target.setAutoAttach", {
+    autoAttach: false, flatten: true, waitForDebuggerOnStart: false,
+  });
+  const targetPromise = browser.waitForTarget(target => target.url() === link);
+  await popup.click(".calendar-action").catch(error => {
+    if (!(error instanceof TargetCloseError) || !popup.isClosed()) throw error;
+  });
+  const target = await targetPromise;
+  assert.notEqual(target, popup.target());
+  assert.equal(new URL(target.url()).searchParams.get("dates"), "20250401/20250402");
+  // DNS for Google is blocked in this suite; only the handoff is under test.
+});
+
+for (const activation of ["touch", "keyboard"]) {
+  test(`calendar links open on the first ${activation} activation`, async () => {
+    responseEvents = [favoriteEvent];
+    const action = await openPopup({ expandFilters: false });
+    const url = action.popup.url();
+    await action.popup.close();
+    const popup = await browser.newPage();
+    await popup.goto(url);
+    await popup.waitForSelector(".calendar-action");
+    const link = await popup.$eval(".calendar-action", el => el.href);
+    if (activation === "touch") {
+      const session = await popup.createCDPSession();
+      await session.send("Emulation.setTouchEmulationEnabled", { enabled: true });
+    } else {
+      await popup.focus(".calendar-action");
+    }
+    await browserSession.send("Target.setAutoAttach", {
+      autoAttach: false, flatten: true, waitForDebuggerOnStart: false,
+    });
+    const targetPromise = browser.waitForTarget(target => target.url() === link);
+    if (activation === "touch") await popup.tap(".calendar-action");
+    else await popup.keyboard.press("Enter");
+    const target = await targetPromise;
+    assert.notEqual(target, popup.target());
+    assert.equal(await popup.evaluate(() => localStorage.getItem("bee-there-favorites")), null);
+    assert.equal(await popup.$eval(".calendar-action", el => el.hasAttribute("aria-pressed")), false);
+  });
+}
+
+test("calendar icons and tooltips fit narrow and standard layouts in both themes", async () => {
+  responseEvents = [favoriteEvent, { ...favoriteEvent, id: "second-event", title: "Film Festival", category: "film" }];
+  const action = await openPopup({ expandFilters: false });
+  const url = action.popup.url();
+  await action.popup.close();
+  const popup = await browser.newPage();
+  for (const width of [320, 420]) {
+    await popup.setViewport({ width, height: 600 });
+    await popup.goto(url);
+    await popup.waitForSelector(".calendar-action");
+    for (const theme of ["light", "dark"]) {
+      await popup.click(`label[for="theme-${theme}"]`);
+      await popup.focus(".calendar-action");
+      await popup.keyboard.press("Tab");
+      await popup.keyboard.down("Shift");
+      await popup.keyboard.press("Tab");
+      await popup.keyboard.up("Shift");
+      const layout = await popup.$eval(".calendar-action", link => {
+        const rect = link.getBoundingClientRect();
+        const star = link.closest(".event-actions").querySelector(".favorite-action").getBoundingClientRect();
+        const tooltip = link.parentElement.querySelector(".calendar-tooltip").getBoundingClientRect();
+        return {
+          width: rect.width, height: rect.height, gap: star.left - rect.right,
+          outline: getComputedStyle(link).outlineStyle,
+          visibleGap: star.left - rect.right -
+            parseFloat(getComputedStyle(link).outlineWidth) -
+            parseFloat(getComputedStyle(link).outlineOffset),
+          color: getComputedStyle(link).color,
+          tooltipLeft: tooltip.left, tooltipRight: tooltip.right,
+          overflow: document.querySelector(".popup").scrollWidth > innerWidth,
+        };
+      });
+      assert.equal(layout.width, 36);
+      assert.equal(layout.height, 36);
+      assert.equal(layout.gap, 8);
+      assert.notEqual(layout.outline, "none");
+      assert.ok(layout.visibleGap >= 4, "The focus ring must stay clear of the star");
+      assert.equal(layout.overflow, false);
+      assert.ok(layout.tooltipLeft >= 0 && layout.tooltipRight <= width);
+      assert.equal(layout.color, theme === "light" ? "rgb(102, 115, 92)" : "rgb(186, 203, 176)");
+      await popup.screenshot({ path: `/tmp/beethere-hug28-${theme}-${width}.png` });
+    }
+  }
+});
+
+test("a calendar tooltip stays inside the results area near its bottom edge", async () => {
+  responseEvents = Array.from({ length: 6 }, (_, index) => ({ ...favoriteEvent, id: `event-${index}` }));
+  const { popup } = await openPopup({ expandFilters: false });
+  await popup.waitForSelector(".calendar-action");
+  const selector = ".event-card:nth-child(3) .calendar-action";
+  await popup.$eval(selector, link => {
+    const results = document.querySelector("#results");
+    results.scrollTop += link.getBoundingClientRect().bottom - results.getBoundingClientRect().bottom + 4;
+  });
+  await popup.focus(selector);
+  const bounds = await popup.$eval(selector, link => {
+    const tooltip = link.parentElement.querySelector(".calendar-tooltip").getBoundingClientRect();
+    const results = document.querySelector("#results").getBoundingClientRect();
+    return { top: tooltip.top, bottom: tooltip.bottom, min: results.top, max: results.bottom };
+  });
+  assert.ok(bounds.top >= bounds.min && bounds.bottom <= bounds.max, JSON.stringify(bounds));
+});
+
+test("calendar actions stay usable while another page loads or fails", async () => {
+  responseEvents = Array.from({ length: 20 }, (_, index) => ({ ...favoriteEvent, id: `event-${index}` }));
+  const { popup } = await openPopup({ expandFilters: false });
+  await popup.waitForSelector(".event-card:nth-child(20)");
+  let finishPage;
+  const pendingPage = new Promise(resolve => { finishPage = resolve; });
+  responseHandler = (_request, response) => finishPage(response);
+  await popup.$eval("#results", el => { el.scrollTop = el.scrollHeight; });
+  const response = await pendingPage;
+  assert.equal(await popup.$eval("#page-status", el => el.textContent), "Loading more events…");
+  assert.equal(await popup.$eval(".calendar-action", el => el.closest("[inert]")), null);
+  assert.equal(await popup.$$(".calendar-action").then(links => links.length), 20);
+  respondWithJson(response, [], 503);
+  await popup.waitForSelector("#retry-more");
+  assert.equal(await popup.$eval(".calendar-action", el => el.closest("[inert]")), null);
+  assert.equal(await popup.$eval(".calendar-action", el => new URL(el.href).hostname), "calendar.google.com");
+});
+
+test("calendar tooltips follow hover, focus and Escape without changing focus", async () => {
+  responseEvents = [favoriteEvent];
+  const { popup } = await openPopup({ expandFilters: false });
+  await popup.waitForSelector(".calendar-action");
+  assert.equal(await popup.$$(".calendar-tooltip").then(tips => tips.length), 1);
+  assert.equal(await popup.$eval(".calendar-tooltip", el => el.hidden), true);
+  await popup.hover(".calendar-action");
+  assert.equal(await popup.$eval(".calendar-tooltip", el => el.hidden), false);
+  assert.equal(await popup.$eval(".calendar-tooltip", el => el.textContent), "Add to Google Calendar");
+  await popup.keyboard.press("Escape");
+  assert.equal(await popup.$eval(".calendar-tooltip", el => el.hidden), true);
+  await popup.hover("h2");
+  await popup.focus(".calendar-action");
+  assert.equal(await popup.$eval(".calendar-tooltip", el => el.hidden), false);
+  assert.equal(await popup.$eval(".calendar-action", el => el.matches(":focus-visible")), true);
+  await popup.keyboard.press("Escape");
+  assert.equal(await popup.$eval(".calendar-tooltip", el => el.hidden), true);
+  assert.equal(await popup.$eval(".calendar-action", el => el === document.activeElement), true);
+  await popup.focus(".favorite-action");
+  await popup.hover(".calendar-action");
+  await popup.focus(".calendar-action");
+  await popup.hover(".calendar-tooltip");
+  await popup.focus(".favorite-action");
+  assert.equal(await popup.$eval(".calendar-tooltip", el => el.hidden), false);
+  await popup.hover("h2");
+  assert.equal(await popup.$eval(".calendar-tooltip", el => el.hidden), true);
+});
+
+test("calendar icons link the displayed event to Google without changing favorites or fetching again", async () => {
+  responseEvents = [{ ...favoriteEvent, ends_at: "2025-04-01T20:00:00Z" }];
+  const { popup } = await openPopup({ expandFilters: false });
+  await popup.waitForSelector(".event-card");
+  assert.equal(await popup.$$(".calendar-action").then(links => links.length), 1);
+  const link = await popup.$eval(".calendar-action", el => ({
+    href: el.href,
+    target: el.target,
+    rel: el.rel,
+    label: el.getAttribute("aria-label"),
+    pressed: el.getAttribute("aria-pressed"),
+    icon: el.querySelector("svg")?.getAttribute("aria-hidden"),
+    besideStar: Boolean(el.closest(".event-actions")?.querySelector(".favorite-action")),
+  }));
+  const params = new URL(link.href).searchParams;
+  assert.equal(params.get("text"), favoriteEvent.title);
+  assert.equal(params.get("dates"), "20250401T180000Z/20250401T200000Z");
+  assert.equal(link.target, "_blank");
+  assert.equal(link.rel, "noopener noreferrer");
+  assert.equal(link.label, `Add ${favoriteEvent.title} to Google Calendar (opens a new tab)`);
+  assert.equal(link.pressed, null);
+  assert.equal(link.icon, "true");
+  assert.equal(link.besideStar, true);
+  const requestCount = requests.length;
+  const storedChoices = await popup.evaluate(() => localStorage.getItem("bee-there-discovery"));
+  responseEvents = [{ ...favoriteEvent, starts_at: "2025-04-01T21:00:00Z" }];
+  await popup.$eval(".calendar-action", el => {
+    el.addEventListener("click", event => event.preventDefault());
+    el.click();
+    el.click();
+  });
+  assert.equal(requests.length, requestCount);
+  assert.equal(await popup.evaluate(() => localStorage.getItem("bee-there-discovery")), storedChoices);
+  assert.equal(await popup.evaluate(() => localStorage.getItem("bee-there-favorites")), null);
+  assert.equal(await popup.$eval(".calendar-action", el => el.href), link.href);
+});
 
 test("normal browsing sends a QUERY JSON body without favorite IDs", async () => {
   const { popup } = await openPopup();
@@ -295,6 +492,9 @@ test("a favorites read failure disables actions without overwriting IDs and can 
   await popup.waitForSelector(".event-card", { timeout: 2000 });
   assert.equal(await popup.$eval(".favorite-action", el => el.disabled), true);
   assert.equal(await popup.$eval("#favorites-only", el => el.disabled), true);
+  await popup.focus(".calendar-action");
+  assert.equal(await popup.$eval(".calendar-action", el => el === document.activeElement), true);
+  assert.equal(await popup.$eval(".calendar-action", el => new URL(el.href).hostname), "calendar.google.com");
   assert.match(await popup.$eval("#favorite-status", el => el.textContent), /Could not read favorites/);
   assert.equal(await popup.$eval("#favorite-status", el => getComputedStyle(el).clipPath), "none");
   await popup.evaluate(() => { window.failFavoritesRead = false; });
@@ -324,6 +524,7 @@ test("a favorites write failure keeps the previous state and announces an error"
   assert.equal(await popup.$eval(".favorite-action", el => el.getAttribute("aria-pressed")), "true");
   assert.deepEqual(await popup.evaluate(() => JSON.parse(localStorage.getItem("bee-there-favorites"))), [favoriteEvent.id]);
   assert.doesNotMatch(await popup.$eval("#status", el => el.textContent), /Could not/);
+  assert.equal(await popup.$eval(".calendar-action", el => new URL(el.href).hostname), "calendar.google.com");
   await popup.evaluate(() => { window.failFavoritesWrite = false; });
   await popup.click(".favorite-action");
   assert.match(await popup.$eval("#favorite-status", el => el.textContent), /Removed/);
@@ -1665,6 +1866,7 @@ test("updating keeps old cards inert, then shows filtered empty feedback", async
   await popup.type("#title-query", "x");
   assert.equal(await popup.$$eval(".event-card", (cards) => cards.length), 1);
   assert.equal(await popup.$eval("#event-list", (el) => el.inert), true);
+  assert.equal(await popup.$eval(".calendar-action", el => Boolean(el.closest("[inert]"))), true);
   assert.equal(
     await popup.$eval("#status", (el) => el.textContent),
     "Updating results…",

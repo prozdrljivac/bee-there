@@ -72,6 +72,22 @@ keep choices. A storage read error disables favorite actions until a successful
 retry; it never replaces saved IDs. A write error keeps the previous state and
 announces the failure. Favorite announcements are separate from result errors.
 
+## Google Calendar
+
+Use the calendar-plus icon beside the star to open a Google Calendar draft in
+another tab. Review the draft and save it there. No favorite is required.
+
+Known start and end times use the Novi Sad schedule (`Europe/Belgrade`). If the
+end is unknown, the draft is all-day on the Novi Sad start date. Its description
+starts with the actual start time and explains the all-day fallback. Missing
+venues leave Location empty. The export includes the source link and a no-sync
+notice, but not the event summary.
+
+This is a one-time copy of the displayed details. BeeThere does not refresh on
+click, track saving, prevent duplicates, or update entries later. Google controls
+sign-in and default reminders. Recovery through sign-in is not verified; if the
+draft is lost, sign in and use the icon again.
+
 ## Test
 
 ```shell
@@ -86,7 +102,10 @@ real-server title matching, category OR, overlapping dates, and all result pages
 Pure date tests cover Belgrade day boundaries across both DST changes.
 Favorites unit and browser tests cover local IDs, storage failures, QUERY
 bodies and pagination, fresh returning details, focus, and narrow layouts in
-both themes.
+both themes. Calendar tests cover timed and all-day links, DST and date
+boundaries, URL encoding, independent favorite/error states, tooltip dismissal,
+keyboard and touch activation, and narrow layouts. Google DNS is blocked in the
+browser suite; handoff tests check the new tab, not Google's editor or saving.
 
 ## Create a Chrome release
 

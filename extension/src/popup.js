@@ -2,6 +2,7 @@ import { API_BASE_URL } from "./config.js";
 import { dateBounds, today, parseDay, formatDay } from "./discovery-dates.js";
 import { createDatePicker } from "./date-picker.js";
 import { loadFavorites, writeFavorites } from "./favorites.js";
+import { createCalendarAction } from "./calendar-action.js";
 
 let favoriteIds = new Set();
 let favoritesAvailable = false;
@@ -230,7 +231,10 @@ function renderEvent(event) {
     ),
   );
 
-  top.append(favoriteAction(event));
+  const actions = document.createElement("div");
+  actions.className = "event-actions";
+  actions.append(createCalendarAction(event), favoriteAction(event));
+  top.append(actions);
 
   const time = document.createElement("time");
   time.className = "time";

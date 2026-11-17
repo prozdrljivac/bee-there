@@ -52,6 +52,8 @@ test("the release command creates a minimal Chrome upload archive", async () => 
     "assets/logo/beethere-icon-48.png",
     "assets/logo/beethere-logo-dark.svg",
     "assets/logo/beethere-logo-light.svg",
+    "calendar-action.js",
+    "calendar-export.js",
     "calendar.js",
     "config.js",
     "date-picker.js",

@@ -302,6 +302,69 @@ main {
   flex: 1;
 }
 
+.event-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.calendar-control {
+  position: relative;
+  display: inline-flex;
+}
+.calendar-tooltip {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 2;
+  padding: 6px 8px;
+  border-top: 4px solid transparent;
+  border-radius: 4px;
+  background: var(--ink);
+  background-clip: padding-box;
+  color: var(--paper);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.calendar-tooltip.above {
+  top: auto;
+  bottom: 100%;
+  border-top: 0;
+  border-bottom: 4px solid transparent;
+}
+
+.calendar-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  color: var(--secondary);
+  text-decoration: none;
+}
+.calendar-action svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.13333;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.calendar-action:hover {
+  background: var(--tile);
+}
+.calendar-action:active {
+  background: var(--pressed-bg);
+}
+.calendar-action:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
 .favorite-action {
   display: inline-flex;
   align-items: center;
